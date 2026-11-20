@@ -9,12 +9,11 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from shortener.infra.tables import metadata as target_metadata
+
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
-
-# Phase 3 will point this at the ORM metadata so `alembic check` can detect model/migration drift.
-target_metadata = None
 
 
 def _database_url() -> str:

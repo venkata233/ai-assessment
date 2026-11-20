@@ -41,6 +41,7 @@ flowchart LR
 - Production recommendation: separate Redis instances for cache/rate-limit (no persistence, `allkeys-lru`) and for the stream (AOF, `noeviction`). The compose file uses one instance for pragmatism.
 
 ## Consequences
+- **Implementation notes (Phase 3):** a Redis circuit breaker (3 failures, 5 s) shared with the cache and rate limiter keeps a dead Redis from slowing redirects; drops while it is open are counted as `clicks_dropped_total{reason="circuit_open"}`. Entries whose delivery count exceeds 5 (for example after a PostgreSQL outage lasting five reclaim cycles) move to `clicks:dead`: they are preserved but not counted, and there is no re-drive tool yet.
 - New deployable (`worker`) in compose and CI; scales by adding replicas (each consumer name is unique).
 - Analytics lag = stream backlog + ≤ 1 s read block; surfaced via `/health/ready` extension later and metrics.
 - Tests: integration tests cover emit failure (redirect still 302), redelivery idempotency, and poison-message routing to the dead stream.

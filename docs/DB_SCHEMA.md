@@ -74,7 +74,7 @@ WITH ins AS (
 UPDATE urls u SET click_count = u.click_count + agg.n FROM agg WHERE u.id = agg.url_id;
 ```
 
-Caveat: concurrent workers touching overlapping links can deadlock on the `UPDATE`. The worker retries the whole batch on `40P01`/`40001`; this is safe because the insert is idempotent. (Covered by an integration test in Phase 3.)
+Caveat: concurrent workers touching overlapping links can deadlock on the `UPDATE`. Phase 3 implementation: the repository first locks the affected `urls` rows in id order (`SELECT ... ORDER BY id FOR NO KEY UPDATE`, which does not conflict with the foreign key's `KEY SHARE` locks) so all workers acquire locks in the same order, and still retries the whole batch on `40P01`/`40001`, which is safe because the insert is idempotent. A stress test (12 concurrent overlapping batches) shows no failure and exact counters; the retry path is tested by injecting `40P01`. A deadlock without the ordered locks could not be reproduced, so the lock is defence in depth, not a proven fix.
 
 Analytics (window `[from, to)`):
 
@@ -121,6 +121,6 @@ Limits of this validation: the query plans were checked on tiny tables with `ena
 | Zero-downtime rule (expand → migrate → contract) | Release N adds nullable columns/new tables (backward compatible with N-1 code). Release N+1 backfills and switches reads. Release N+2 drops the old column. Never rename or drop in the same release that stops using it. |
 | Locks | Index creation on large tables uses `CREATE INDEX CONCURRENTLY` (needs `autocommit_block()` in the migration). New `NOT NULL` columns on big tables are added nullable, backfilled in batches, then constrained with `NOT VALID` + `VALIDATE CONSTRAINT`. Migrations set `lock_timeout` to fail fast instead of queueing behind traffic. |
 | Review checklist for every migration | Backward compatible with previous app version? Lock level and duration? Index justified and not duplicating another? Reversible in dev? Tested on a populated table? |
-| CI gates (Phase 3/4) | (1) `upgrade head` on an empty database; (2) `upgrade → downgrade base → upgrade`; (3) `alembic check` once ORM metadata is wired into `env.py`, to catch model/migration drift; (4) one linear head only (fail on branch heads). |
+| CI gates | Implemented in `.github/workflows/ci.yml` (not yet run on GitHub) and in `tests/integration/test_redis_and_migrations.py`: (1) `upgrade head` on an empty database; (2) `upgrade → downgrade base → upgrade`; (3) `alembic check` (ORM metadata in `infra/tables.py` is wired into `env.py`; verified: no drift); (4) exactly one head. |
 | Seed data | None in migrations. Reserved aliases live in code (domain validation), not in the database. |
 | Retention (documented, not built) | A purge job deletes `clicks` older than `CLICK_RETENTION_DAYS` (default 90) in batches; at larger scale replace with monthly partitions and `DROP PARTITION` (ADR-003 upgrade path). |

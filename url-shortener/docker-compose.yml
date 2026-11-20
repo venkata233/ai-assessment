@@ -1,0 +1,85 @@
+# Local development stack: `docker compose up --build`.
+# Values with *_dev_only are throwaway defaults for a laptop. Override them (see .env.example) for anything shared.
+name: url-shortener
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql+asyncpg://shortener:${POSTGRES_PASSWORD:-shortener_dev_only}@postgres:5432/shortener
+  REDIS_URL: redis://redis:6379/0
+  # Demo keys: "demo-key-local-dev-only" (owner "demo") and "second-key-local-dev-only" (owner "other").
+  API_KEYS: ${API_KEYS:-demo:c1d5df720e5bccea4c80f959195421baa0c28d3d50ed8f74e6073f57bc04da17,other:e37e3942d7d26684a71c7ef7a7f5384e0d0431a74cdb819e4002f9a8125e7508}
+  BASE_URL: ${BASE_URL:-http://localhost:8000}
+  ANALYTICS_SECRET: ${ANALYTICS_SECRET:-analytics_secret_dev_only_change_me}
+  TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-0}
+  DNS_CHECK_ENABLED: ${DNS_CHECK_ENABLED:-true}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857
+    environment:
+      POSTGRES_USER: shortener
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shortener_dev_only}
+      POSTGRES_DB: shortener
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shortener -d shortener"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
+    # AOF on and volatile-lru: only keys with a TTL (cache, rate limits) can be evicted, never the click stream (ADR-004).
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: .
+    image: url-shortener:local
+    command: ["alembic", "upgrade", "head"]
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: url-shortener:local
+    environment: *app-env
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    image: url-shortener:local
+    command: ["python", "-m", "shortener.worker"]
+    environment: *app-env
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+volumes:
+  pgdata:
+  redisdata:

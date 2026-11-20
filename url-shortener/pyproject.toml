@@ -1,0 +1,52 @@
+# Tool configuration only. Dependencies are pinned in requirements.txt / requirements-dev.txt.
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "C4", "SIM", "RUF", "ASYNC", "PT"]
+ignore = [
+    "S101",   # assert is idiomatic in tests
+    "RUF012", # mutable class attrs in Pydantic/settings models
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S311", "B018", "PT018", "S104", "E501"]
+"migrations/**" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+packages = ["shortener"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["asyncpg.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: needs real PostgreSQL and Redis (see docker-compose.yml, `make deps-up`)",
+]
+filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
+
+[tool.coverage.run]
+branch = true
+source = ["shortener"]
+omit = ["src/shortener/main.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "\\.\\.\\."]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]

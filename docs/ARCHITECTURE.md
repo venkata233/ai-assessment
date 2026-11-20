@@ -1,7 +1,7 @@
 # Architecture Overview
 
 Scope: Part B (URL shortener service) and how AI assistance is integrated into building it. Part A (the Engineering Copilot tool) gets its own section in Phase 5.
-Status: Phase 2 design. Nothing in this document has been implemented yet; statements about behaviour are *design intent* unless marked **verified**.
+Status: Phase 2 design, **implemented in Phase 3** (`url-shortener/src/shortener/`). Behaviour statements are *design intent* unless marked **verified**; section 15 lists what Phase 3 actually verified, where the implementation differs from this design, and what is still unproven.
 
 > **Provisional design targets (not verified capacity):** 100 M links, 5 k redirects/s peak, 50 creates/s. They size the design; only Phase 4 load tests will say what the implementation achieves.
 
@@ -227,3 +227,35 @@ Monthly partitioning of `clicks`; daily rollup table; columnar store for analyti
 [ADR-001 302](adr/ADR-001-redirect-302.md) · [ADR-002 Code generation](adr/ADR-002-code-generation.md) · [ADR-003 PostgreSQL](adr/ADR-003-postgresql-system-of-record.md) · [ADR-004 Redis Streams analytics](adr/ADR-004-analytics-redis-streams.md) · [ADR-005 Cache strategy](adr/ADR-005-cache-strategy.md) · [ADR-006 API-key auth](adr/ADR-006-api-key-auth.md)
 
 Contracts: [openapi.yaml](../url-shortener/openapi.yaml) · [DB_SCHEMA.md](DB_SCHEMA.md)
+
+## 15. Phase 3 implementation notes (what was built, verified, and changed)
+
+**Verified by running (2026-11-20, Windows host, Docker Desktop 29.9.3, PostgreSQL 16 and Redis 7 in containers):**
+
+| Claim | Evidence |
+|---|---|
+| Acceptance criteria AC-1..AC-12 and AC-14 hold against real PostgreSQL and Redis | `tests/integration/test_api_e2e.py` (incl. 50 concurrent creates of one alias: exactly one `201`, 49 `409`) |
+| AC-13: a clean checkout starts with one command | `docker compose down -v` then `docker compose up -d --build --wait`: exit 0 in 15 s, migrations applied, `/health` `200`, app runs as uid 10001 |
+| Running service matches `openapi.yaml` | `tests/contract/`: responses validated against the spec's own JSON Schemas; operation set and operationIds identical |
+| Click pipeline: at-least-once delivery, idempotent storage, poison handling | `tests/integration/test_worker.py` (redelivery after crash, commit-then-crash, dead-lettering, reclaim, two workers, graceful stop) |
+| Redirect works with Redis down; analytics emit never delays the response | integration test AC-11, ASGI-level test that the response completes before the (slow) publish, live check with `docker compose stop redis` |
+| Migrations round-trip and models match them | `alembic upgrade → downgrade base → upgrade`, `alembic check` (no drift), single head |
+| Static checks | `ruff`, `mypy --strict` (36 files), `bandit` (0 findings), `pip-audit` (no known vulnerabilities) |
+| Test strength | 384 tests, 96 % statement/branch coverage overall, 99 % on `link_service.py`; manual mutation run in `.agent/mutation_check.py` (see AI_USAGE_LOG entry 026) |
+
+**Differences from the Phase 2 design (all deliberate, each found by running the system):**
+
+- **Circuit breaker for Redis** (`infra/circuit_breaker.py`, shared by cache, limiter, and publisher). Design said "fall back to PostgreSQL on Redis error" but a live test showed every redirect then paid several failed connect attempts (839 ms with the Redis container stopped). After 3 consecutive failures Redis is skipped for 5 s; measured: first request 549 ms, then 5-30 ms. Dropped events while open are counted as `clicks_dropped_total{reason="circuit_open"}`.
+- **Counter update locks rows first** (`FOR NO KEY UPDATE ... ORDER BY id`) so concurrent workers take locks in the same order; the retry on `40P01`/`40001` remains as a safety net. *Limit:* I could not reproduce a deadlock without it (see AI_USAGE_LOG entry 026), so its necessity is unproven.
+- **Extra configuration** beyond section 8: `RATE_LIMIT_API_PER_MIN` (300; limit for non-create management calls, also throttles failed key attempts per client address), `DNS_CHECK_ENABLED`, `DNS_TIMEOUT_SECONDS`, `DOCS_ENABLED` (default off), `METRICS_ENABLED`, `CLICK_EMIT_TIMEOUT_MS` (50), `CLICK_STREAM_MAXLEN`, `REDIS_SOCKET_TIMEOUT_SECONDS`, `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`.
+- **DNS check is advisory:** hostnames that fail to resolve are accepted (only a resolution to a non-public address is rejected), so an offline machine can still create links.
+- **`/metrics`** is a small hand-written Prometheus text endpoint (counters plus `click_stream_length` / `click_stream_pending` gauges), unauthenticated; restrict it at the ingress or set `METRICS_ENABLED=false`.
+
+**Known limits and unproven claims (do not read these as capacity or security guarantees):**
+
+- The GitHub Actions workflow (`.github/workflows/ci.yml`) has **not been run**: there is no remote. Its steps were exercised locally one by one; its YAML parses; action versions are pinned to commit SHAs.
+- Nothing here has been load tested; the 5,000 redirects/s target remains an unverified design target (Phase 4).
+- With Redis *blackholed* (packets dropped rather than refused) the first calls wait up to `REDIS_SOCKET_TIMEOUT_SECONDS` (0.25 s) each before the breaker opens; not measured.
+- Rate limiting identifies clients by the address `TRUSTED_PROXY_HOPS` yields. Behind an unconfigured proxy every visitor shares one address (and one redirect limit).
+- A PostgreSQL outage longer than about `max_deliveries` reclaim cycles (5 x 60 s) moves pending click events to `clicks:dead` (kept, not lost, but not counted until re-driven by hand; no re-drive tool exists yet).
+- The static analysers and scanners cover the code and pinned dependencies; they say nothing about the base image beyond its pinned digest. No image scan was run.
