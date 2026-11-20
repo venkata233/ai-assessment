@@ -22,7 +22,7 @@ Locust measures from inside the Docker network, so the figures exclude Windows/W
 | Item | Value |
 |---|---|
 | Machine | Laptop, Intel Core i5-1235U (10 cores / 12 threads, 2 performance + 8 efficiency cores), 7.7 GB RAM |
-| Docker | Docker Desktop 29.9.3 on WSL2: 12 CPUs and **3.9 GB RAM** visible to the VM |
+| Docker | Docker 29.9.3 under Docker Desktop on WSL2: 12 CPUs and **3.9 GB RAM** visible to the VM |
 | Everything shared | The Locust runners, app, worker, PostgreSQL 16, and Redis 7 all ran on this one machine, competing for the same CPUs |
 | App | One container; 1, 4, or 8 uvicorn processes (`WEB_CONCURRENCY`); request logging at INFO (one JSON line per request); `LOG_LEVEL` was not lowered |
 | Load | Closed loop (zero think time), 4 Locust processes, 60 s per run, users as noted |

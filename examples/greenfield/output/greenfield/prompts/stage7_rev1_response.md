@@ -3,21 +3,23 @@
 ## Traceability matrix
 | Requirement | Acceptance criterion | Task |
 |---|---|---|
-| R1 | AC-1 | T01 |
-| R2 | AC-2 | T02 |
-| R3 | AC-3 | T03 |
-| R4 | AC-4 | T04 |
-| R5 | AC-5 | T05 |
-| R6 | AC-6 | T06 |
+| R1 | AC-1 | T03 |
+| R2 | AC-2 | T04 |
+| R3 | AC-3 | T05 |
+| R4 | AC-4 | T06 |
+| R5 | AC-5 | T07 |
+| R6 | AC-6 | T08 |
 
 ## Unverified claims
-- 56 placeholders remain in earlier stages (TBD / DECISION REQUIRED / unrated risks): each is an unverified or undecided item.
+- 115 placeholders remain in earlier stages (TBD / DECISION REQUIRED / unrated risks / empty iteration log): each is an unverified or undecided item.
 - 3 labelled assumptions (A-1, A-2, A-3): none are validated by this tool.
-- All stage outputs came from rule-based heuristics unless the session used a real provider; nothing was executed or tested.
+- 6 generated test skeletons are skipped placeholders; no generated output was executed or tested.
+- All stage outputs came from rule-based heuristics unless the session used a real provider.
 
 ## Open items
 - Resolve every placeholder above before treating the plan as final.
-- Confirm the stage definitions and gates match the assessment brief.
+- Complete the iteration log with what the AI really produced and what you changed.
+- Decisions recorded as 'scripted' or 'auto' were not made by a person at a gate; confirm them.
 
 ## Hand-off summary
-Seven stages were completed with an engineer decision at each gate. 6 requirement statements, 9 tasks, 6 acceptance-criteria skeletons. The plan is a structured starting point, not a verified design.
+Seven stages were completed with an engineer decision at each gate. 6 requirement statements, 10 tasks, 6 acceptance-criteria skeletons, 6 generated test skeletons. The plan and drafts are a structured starting point, not a verified design or implementation.

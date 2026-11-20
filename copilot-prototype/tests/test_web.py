@@ -191,7 +191,7 @@ def test_full_seven_stage_flow_over_http(server: CopilotServer) -> None:
         assert call(server, "POST", f"/s/{session_id}/decide", form)[0] == 303
     _, _, page = call(server, "GET", f"/s/{session_id}")
     assert "All seven stages are complete" in page
-    assert "Seven stages were completed" in call(server, "GET", f"/s/{session_id}/a/07_review.md")[2]
+    assert "Seven stages were completed" in call(server, "GET", f"/s/{session_id}/a/07_summary.md")[2]
     assert "Engineer decision" in call(server, "GET", f"/s/{session_id}/a/SUMMARY.md")[2]
 
 

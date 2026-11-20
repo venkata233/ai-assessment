@@ -75,7 +75,7 @@ FAILURE_MODES: tuple[tuple[tuple[str, ...], str, str], ...] = (
         "Rely on a database unique constraint and handle the violation; never only check first.",
     ),
     (
-        ("token", "code", "random", "secret", "key", "session"),
+        ("token", "code", "random", "key", "session"),
         "Non-cryptographic randomness for unguessable values",
         "Use a cryptographically secure generator (for example `secrets`).",
     ),
@@ -147,6 +147,82 @@ def _clip(text: str, limit: int = 90) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+_TASK_ROW = re.compile(r"^\|\s*(T\d{2})\s*\|\s*((?:[^|\\]|\\.)+?)\s*\|", re.M)
+# Anything not clearly analysis, design, tests or docs is treated as build work, so an engineer rewording a title
+# (for example dropping "Implement:") never silently removes the task from prompts, drafts or the traceability matrix.
+_NOT_BUILD_WORK = frozenset({"analysis", "design", "test", "docs"})
+_KIND_BY_PREFIX = (
+    ("Implement:", "build"),
+    ("Reproduce and fix", "fix"),
+    ("Resolve open questions", "analysis"),
+    ("Decide the architecture", "design"),
+    ("Write automated tests", "test"),
+    ("Document", "docs"),
+)
+
+FIX_SKETCHES: dict[str, tuple[str, str]] = {
+    "CHECK_THEN_INSERT": (
+        "Let the database enforce uniqueness and handle the conflict; do not check first.",
+        """# schema: a UNIQUE constraint on the key column
+cursor.execute(
+    "INSERT INTO <table> (<unique_column>, <other_column>) VALUES (%s, %s) ON CONFLICT (<unique_column>) DO NOTHING",
+    (key, other),
+)
+created = cursor.rowcount == 1  # False: another request won the race; report a conflict, never overwrite""",
+    ),
+    "SQL_STRING_BUILDING": (
+        "Pass values as bound parameters; never build SQL with string formatting.",
+        """cursor.execute("SELECT 1 FROM <table> WHERE <column> = %s", (value,))""",
+    ),
+    "INSECURE_RANDOM": (
+        "Use a cryptographically secure generator for values that must be unguessable.",
+        """import secrets
+
+identifier = "".join(secrets.choice(ALPHABET) for _ in range(LENGTH))""",
+    ),
+    "WEAK_HASH": (
+        "MD5 and SHA-1 are not suitable for security purposes; SHA-256 is a safe default for digests such as an ETag.",
+        """import hashlib
+
+digest = hashlib.sha256(data).hexdigest()""",
+    ),
+    "HARDCODED_SECRET": (
+        "Read the value from the environment or a secrets manager, fail at start-up when it is missing, and rotate the exposed value.",
+        """import os
+
+setting = os.environ["NAME_OF_THE_SETTING"]  # KeyError at start-up when unset""",
+    ),
+    "TLS_VERIFY_OFF": (
+        "Keep certificate verification on; trust a private certificate authority explicitly if one is needed.",
+        """response = session.get(url, timeout=10)  # verification stays on""",
+    ),
+    "DANGEROUS_CALL": (
+        "Avoid eval, exec and shell=True with untrusted input; use a parser or an argument list.",
+        """import subprocess
+
+subprocess.run(["program", argument], check=True)  # argument list, no shell""",
+    ),
+    "SWALLOWED_EXCEPTION": (
+        "Catch the specific exception, log it, and either handle it or re-raise.",
+        """try:
+    do_work()
+except SpecificError:
+    logger.exception("what failed")
+    raise""",
+    ),
+}
+
+
+def _mentions(text: str, words: tuple[str, ...]) -> bool:
+    """True when any word occurs at the start of a word (so 'code' matches 'codes' but not 'hardcoded')."""
+    normalised = text.lower().replace("_", " ")
+    return any(re.search(r"\b" + re.escape(w), normalised) for w in words)
+
+
+def _task_kind(title: str) -> str:
+    return next((kind for prefix, kind in _KIND_BY_PREFIX if title.startswith(prefix)), "other")
+
+
 class MockProvider:
     name = "mock"
     is_external = False
@@ -156,11 +232,11 @@ class MockProvider:
         builders = {
             1: self._requirements,
             2: self._decomposition,
-            3: self._design,
-            4: self._implementation,
-            5: self._validation,
-            6: self._risks,
-            7: self._review,
+            3: self._ai_development,
+            4: self._output_generation,
+            5: self._qa,
+            6: self._risk_awareness,
+            7: self._summary,
         }
         return CompletionResponse(BANNER + "\n" + builders[request.stage](inputs), "mock-rule-based-v1")
 
@@ -328,6 +404,7 @@ class MockProvider:
         tasks: list[tuple[str, str, str]] = []  # (title, kind, related text)
         if self._questions(analysis, findings):
             tasks.append(("Resolve open questions into measurable acceptance criteria", "analysis", ""))
+        tasks.append(("Decide the architecture and record each design decision", "design", ""))
         for req in analysis.requirements[:10]:
             tasks.append((f"Implement: {_clip(req, 70)}", "build", req))
         seen: set[str] = set()
@@ -341,6 +418,15 @@ class MockProvider:
         ]
         return tasks
 
+    def _accepted_tasks(self, inputs: dict[str, Any]) -> list[tuple[str, str, str]]:
+        """(id, title, kind) read from the engineer-accepted stage 2 table; recomputed from the brief when absent."""
+        rows = [(i, t.replace("\\|", "|")) for i, t in _TASK_ROW.findall(inputs["previous"].get(2, ""))]
+        if not rows:
+            return [
+                (f"T{n:02d}", title, kind) for n, (title, kind, _related) in enumerate(self._tasks(inputs), 1)
+            ]
+        return [(task_id, title, _task_kind(title)) for task_id, title in rows]
+
     def _decomposition(self, inputs: dict[str, Any]) -> str:
         tasks = self._tasks(inputs)
         rows = []
@@ -352,6 +438,7 @@ class MockProvider:
             )
             ai = {
                 "analysis": "Draft questions and criteria",
+                "design": "Draft options and trade-off tables",
                 "build": "Draft implementation and test skeleton",
                 "fix": "Draft a failing test and a fix",
                 "test": "Generate test tables and skeletons",
@@ -359,6 +446,7 @@ class MockProvider:
             }[kind]
             eng = {
                 "analysis": "Answer the questions; own the numbers",
+                "design": "Choose each option; record why (an ADR per decision)",
                 "build": "Decide behaviour and interfaces; review every line",
                 "fix": "Confirm the root cause; judge the fix",
                 "test": "Judge test value; try breaking the code on purpose",
@@ -373,10 +461,11 @@ class MockProvider:
                     eng + ("; security review required" if sensitive else ""),
                 )
             )
+        gate = [f"T{i:02d}" for i, t in enumerate(tasks, 1) if t[1] in {"analysis", "design"}]
         deps = []
         for i, (_, kind, _) in enumerate(tasks, 1):
-            if kind in {"build", "fix"} and tasks[0][1] == "analysis":
-                deps.append(f"- T{i:02d} depends on T01")
+            if kind in {"build", "fix"} and gate:
+                deps.append(f"- T{i:02d} depends on {', '.join(gate)}")
             if kind == "test":
                 deps.append(
                     f"- T{i:02d} depends on: "
@@ -395,28 +484,32 @@ class MockProvider:
                 "## AI assistance and engineer responsibility",
                 "- AI drafts; the engineer decides, reviews, and runs everything.",
                 "- Anything marked 'DECISION REQUIRED' or 'TBD by engineer' is not done until the engineer resolves it.",
+                "",
+                *self._architecture(inputs),
             ]
         )
 
-    # ----- stage 3 --------------------------------------------------------------------------------------------
-
-    def _design(self, inputs: dict[str, Any]) -> str:
+    def _architecture(self, inputs: dict[str, Any]) -> list[str]:
+        """The design subtask of stage 2: components, the decisions that need the engineer, interfaces, trade-offs."""
         analysis, _ = self._analysis(inputs)
         components = list(analysis.components) or ["Core service"]
         out = [
-            "## Components",
+            "## Architecture and design decisions",
+            "This is the design subtask (task 'Decide the architecture'): the engineer decides, the tool only lays out options.",
+            "",
+            "### Components",
             _table(
                 ("Component", "Responsibility"),
                 [(c, f"Handles: {c.lower()} (derived from wording in the brief)") for c in components],
             ),
             "",
-            "## Decisions required",
+            "### Decisions required",
         ]
         for name in components:
             options = DECISION_OPTIONS.get(name)
             if options:
                 out += [
-                    f"### {name}",
+                    f"#### {name}",
                     _table(("Option", "Gains", "Costs"), [tuple(o) for o in options]),
                     "Engineer decision: ____ (DECISION REQUIRED)",
                     "",
@@ -424,41 +517,99 @@ class MockProvider:
         if out[-1] != "":
             out.append("")
         out += [
-            "## Interfaces and data",
+            "### Interfaces and data",
             "- Derive entities and operations from requirements "
             + ", ".join(f"R{i}" for i in range(1, len(analysis.requirements) + 1))
             + " (TBD by engineer).",
             "",
-            "## Trade-offs",
+            "### Trade-offs",
             "- Each option above gives something up; record the chosen trade-off and why (an ADR per decision).",
         ]
-        return "\n".join(out)
+        return out
 
-    # ----- stage 4 --------------------------------------------------------------------------------------------
+    # ----- stage 3 --------------------------------------------------------------------------------------------
 
-    def _implementation(self, inputs: dict[str, Any]) -> str:
+    def _ai_development(self, inputs: dict[str, Any]) -> str:
         _, findings = self._analysis(inputs)
-        tasks = [t for t in self._tasks(inputs) if t[1] in {"build", "fix"}][:6]
-        out = ["## Prompts"]
-        for i, (title, _, _related) in enumerate(tasks, 1):
+        previous: dict[int, str] = inputs["previous"]
+        tasks = [t for t in self._accepted_tasks(inputs) if t[2] not in _NOT_BUILD_WORK][:6]
+        decisions = re.findall(r"^#### (.+?)\s*$", previous.get(2, ""), re.M)
+        criteria = sorted(set(re.findall(r"\bAC-\d+\b", previous.get(1, ""))), key=lambda a: int(a[3:]))
+        out = [
+            "## Task prompts",
+            "This stage prepares and records AI-assisted development; the tool does not write the code. "
+            "Run each prompt in your assistant, then fill in the iteration log.",
+        ]
+        for n, (task_id, title, kind) in enumerate(tasks, 1):
             out += [
-                f"### Prompt {i}: {title}",
+                f"### Prompt {n} ({task_id}): {title}",
                 "```text",
                 "Role: senior engineer pair-programming with a human owner.",
                 f"Task: {title}",
-                "Inputs: the accepted requirements, design decisions, and the relevant files (redacted).",
+                "Inputs: the accepted requirements and acceptance criteria"
+                + (f" ({', '.join(criteria)})" if criteria else "")
+                + ", the task table, and the relevant files (redacted).",
+            ]
+            if decisions:
+                out.append(
+                    "Design decisions to honour: " + ", ".join(decisions) + " (stage 2, design subtask)."
+                )
+            out += [
                 "Constraints: no new dependencies without asking; no invented requirements; mark assumptions A-<n>.",
+                "Start with a failing test that reproduces the problem."
+                if kind == "fix"
+                else "Write the test first or alongside, and show how it fails when the code is broken.",
                 "Output: a diff plus tests; list what you were unsure about.",
                 "Double-check: concurrency, error paths, security, and what the tests do not cover.",
                 "```",
             ]
+        if not tasks:
+            out.append("- No implement or fix task in the accepted task table; add one in stage 2.")
         out += ["", "## Expected failure modes"]
-        text = (inputs["brief"] + " " + " ".join(f.rule + " " + f.message for f in findings)).lower()
-        hits = [(name, check) for words, name, check in FAILURE_MODES if any(w in text for w in words)]
-        out += [f"- **{name}**: check by: {check}" for name, check in hits] or [
-            "- none matched by keyword; still review for the generic cases below"
-        ]
+        rows: list[tuple[object, ...]] = []
+        covered: set[str] = set()
+        for task_id, title, _kind in tasks:
+            related = " ".join(f.rule + " " + f.message for f in findings if f.rule in title)
+            text = title + " " + related
+            for words, name, check in FAILURE_MODES:
+                if _mentions(text, words):
+                    rows.append((task_id, name, check))
+                    covered.add(name)
+        brief_text = inputs["brief"] + " " + " ".join(f.rule + " " + f.message for f in findings)
+        for words, name, check in FAILURE_MODES:
+            if name not in covered and _mentions(brief_text, words):
+                rows.append(("whole feature", name, check))
+        out.append(
+            _table(("Applies to", "Failure mode", "Check by"), rows)
+            if rows
+            else "- none matched by keyword; still review for the generic cases in the checklist"
+        )
         out += [
+            "",
+            "## Iteration log",
+            "Record what the AI really produced and what you changed, one row per attempt (add rows as needed). "
+            "If the first suggestion was accepted unchanged, say so; do not leave the row blank.",
+            _table(
+                (
+                    "Prompt / task",
+                    "AI suggestion v1 (summary)",
+                    "Issue the engineer found",
+                    "Refined prompt",
+                    "v2 outcome (accept / modify / reject)",
+                ),
+                [
+                    (
+                        f"Prompt {n} ({task_id})",
+                        "TBD: after running the prompt",
+                        "TBD",
+                        "TBD",
+                        "TBD by engineer",
+                    )
+                    for n, (task_id, _title, _kind) in enumerate(tasks, 1)
+                ],
+            )
+            if tasks
+            else "- no prompts, so nothing to log",
             "",
             "## Review checklist",
             "- Does every changed line have a reason I can state?",
@@ -469,9 +620,99 @@ class MockProvider:
         ]
         return "\n".join(out)
 
+    # ----- stage 4 --------------------------------------------------------------------------------------------
+
+    def _output_generation(self, inputs: dict[str, Any]) -> str:
+        analysis, findings = self._analysis(inputs)
+        previous: dict[int, str] = inputs["previous"]
+        tasks = self._accepted_tasks(inputs)
+        criteria = re.findall(r"^- (AC-\d+): (.+)$", previous.get(1, ""), re.M) or [
+            (
+                f"AC-{i}",
+                f"Given <precondition: TBD by engineer>, when {_clip(r, 100)}, then <observable outcome: TBD by engineer>",
+            )
+            for i, r in enumerate(analysis.requirements, 1)
+        ]
+        deliverable = {
+            "analysis": (
+                "Answers to the open questions, folded into the requirements",
+                "Every question answered or marked ASSUME",
+            ),
+            "design": (
+                "One decision record per design decision",
+                "Each record lists the options considered and the trade-off accepted",
+            ),
+            "build": ("Code change with its tests", "Tests pass and fail when the code is broken on purpose"),
+            "fix": ("Regression test plus the fix", "The test fails before the fix and passes after it"),
+            "test": ("Additional automated tests", "Run, with adversarial and edge cases included"),
+            "docs": (
+                "Documentation and hand-off notes",
+                "Every command and claim was run or is labelled unverified",
+            ),
+            "other": ("Engineer-defined deliverable", "TBD by engineer"),
+        }
+        out = [
+            "## Deliverables",
+            _table(
+                ("Task", "Title", "Deliverable", "Check before it is used", "Status"),
+                [(task_id, title, *deliverable[kind], "DRAFT") for task_id, title, kind in tasks],
+            )
+            if tasks
+            else "- no tasks in the accepted task table",
+            "",
+            "## Draft artifacts",
+            "Everything below is generated from rules and templates. It is untested and must be adapted by the engineer.",
+            "",
+            "### Acceptance-test skeletons",
+        ]
+        if criteria:
+            out += ["```python", "import pytest", ""]
+            for ac_id, text in criteria:
+                out += [
+                    '@pytest.mark.skip(reason="skeleton: fill in, then remove this marker")',
+                    f"def test_ac_{ac_id.split('-')[1]}() -> None:",
+                    f"    # {ac_id}: {_clip(text, 110)}",
+                    "    # Given: <precondition: TBD by engineer>",
+                    "    # When: <action: TBD by engineer>",
+                    "    # Then: <observable outcome: TBD by engineer>",
+                    "    raise NotImplementedError",
+                    "",
+                ]
+            out.append("```")
+        else:
+            out.append("- no acceptance criteria were found in stage 1")
+        rules = list(dict.fromkeys(f.rule for f in findings))[:5]
+        if rules:
+            out += ["", "### Fix sketches (one per distinct code-scan rule)"]
+            for rule in rules:
+                where = ", ".join(f"{f.file}:{f.line}" for f in findings if f.rule == rule)
+                summary, code = FIX_SKETCHES.get(
+                    rule, ("No sketch exists for this rule; write the fix by hand.", "")
+                )
+                out += [f"#### {rule} ({where})", summary]
+                if code:
+                    out += ["```python", code, "```"]
+        build = [(task_id, title) for task_id, title, kind in tasks if kind not in _NOT_BUILD_WORK]
+        out += [
+            "",
+            "### Change summary (draft pull-request description)",
+            "- Summary: TBD by engineer",
+            *(f"- {task_id}: {title} (files: TBD by engineer)" for task_id, title in build),
+            "- Tests: TBD by engineer",
+            "- Not verified: everything above, until the engineer runs it",
+            "",
+            "## Output review checklist",
+            "- Nothing here was executed, compiled, or linted by this tool; run it before trusting it.",
+            "- The test skeletons are skipped on purpose: fill each in and remove the marker, so no skeleton can pass as a real test.",
+            "- Fix sketches are generic templates; adapt names, types, and error handling to the real code.",
+            "- Every TBD and DECISION REQUIRED marker is resolved or carried to the Engineering Summary.",
+            "- Compare each draft with its acceptance criterion; reject drafts that do not trace to one.",
+        ]
+        return "\n".join(out)
+
     # ----- stage 5 --------------------------------------------------------------------------------------------
 
-    def _validation(self, inputs: dict[str, Any]) -> str:
+    def _qa(self, inputs: dict[str, Any]) -> str:
         analysis, findings = self._analysis(inputs)
         acs = [f"AC-{i}" for i in range(1, len(analysis.requirements) + 1)]
         out = [
@@ -510,11 +751,39 @@ class MockProvider:
         ]
         if findings:
             out += ["", "- Each code-scan finding needs a regression test that fails before the fix."]
+        out += [
+            "",
+            "## Output verification",
+            _table(
+                ("Generated output (stage 4)", "How it is verified"),
+                [
+                    (
+                        "Acceptance-test skeletons",
+                        "Fill each in, remove the skip marker, run it; it must fail when the behaviour is broken",
+                    ),
+                    (
+                        "Deliverables manifest",
+                        "Every deliverable exists and its 'check before it is used' was run",
+                    ),
+                    *(
+                        [
+                            (
+                                "Fix sketches",
+                                "Apply on a branch; the reproducing test fails before the fix and passes after",
+                            )
+                        ]
+                        if findings
+                        else []
+                    ),
+                ],
+            ),
+            "- Nothing generated by this tool counts as verified until the engineer has run it.",
+        ]
         return "\n".join(out)
 
     # ----- stage 6 --------------------------------------------------------------------------------------------
 
-    def _risks(self, inputs: dict[str, Any]) -> str:
+    def _risk_awareness(self, inputs: dict[str, Any]) -> str:
         analysis, findings = self._analysis(inputs)
         rows: list[tuple[object, ...]] = []
         for i, hit in enumerate(analysis.vague, 1):
@@ -534,7 +803,7 @@ class MockProvider:
                     f"{name}: failure or misuse",
                     "engineer to rate",
                     "engineer to rate",
-                    "See validation plan",
+                    "See the QA stage (stage 5)",
                 )
             )
         for f in [x for x in findings if x.severity == "high"][:5]:
@@ -572,6 +841,10 @@ class MockProvider:
                         "Fence untrusted inputs; never execute model output",
                     ),
                     ("Automation bias", "Engineer decisions are explicit and logged"),
+                    (
+                        "Draft outputs treated as finished work",
+                        "Output review checklist; test skeletons ship skipped; the QA stage verifies the outputs",
+                    ),
                 ],
             ),
             "",
@@ -582,12 +855,16 @@ class MockProvider:
 
     # ----- stage 7 --------------------------------------------------------------------------------------------
 
-    def _review(self, inputs: dict[str, Any]) -> str:
+    def _summary(self, inputs: dict[str, Any]) -> str:
         previous: dict[int, str] = inputs["previous"]
         joined = "\n".join(previous.values())
         reqs = sorted({int(m) for m in re.findall(r"\bR(\d+)\b", previous.get(1, ""))})
         tasks = sorted(set(re.findall(r"\bT\d{2}\b", previous.get(2, ""))))
+        build_tasks = [
+            task_id for task_id, _title, kind in self._accepted_tasks(inputs) if kind in {"build", "other"}
+        ]
         acs = sorted(set(re.findall(r"\bAC-\d+\b", previous.get(1, ""))))
+        skeletons = len(re.findall(r"^def test_ac_\d+\(", previous.get(4, ""), re.M))
         tbd = len(re.findall(r"TBD|DECISION REQUIRED|engineer to rate|Engineer decision: ____", joined))
         assumptions = sorted(set(re.findall(r"\bA-\d+\b", joined)))
         out = [
@@ -598,7 +875,7 @@ class MockProvider:
                     (
                         f"R{r}",
                         f"AC-{r}" if f"AC-{r}" in acs else "MISSING",
-                        tasks[min(r, len(tasks)) - 1] if tasks else "MISSING",
+                        build_tasks[r - 1] if r <= len(build_tasks) else "MISSING",
                     )
                     for r in reqs
                 ],
@@ -607,16 +884,19 @@ class MockProvider:
             else "- no requirements recorded",
             "",
             "## Unverified claims",
-            f"- {tbd} placeholders remain in earlier stages (TBD / DECISION REQUIRED / unrated risks): each is an unverified or undecided item.",
+            f"- {tbd} placeholders remain in earlier stages (TBD / DECISION REQUIRED / unrated risks / empty iteration log): each is an unverified or undecided item.",
             f"- {len(assumptions)} labelled assumptions ({', '.join(assumptions) or 'none'}): none are validated by this tool.",
-            "- All stage outputs came from rule-based heuristics unless the session used a real provider; nothing was executed or tested.",
+            f"- {skeletons} generated test skeletons are skipped placeholders; no generated output was executed or tested.",
+            "- All stage outputs came from rule-based heuristics unless the session used a real provider.",
             "",
             "## Open items",
             "- Resolve every placeholder above before treating the plan as final.",
-            "- Confirm the stage definitions and gates match the assessment brief.",
+            "- Complete the iteration log with what the AI really produced and what you changed.",
+            "- Decisions recorded as 'scripted' or 'auto' were not made by a person at a gate; confirm them.",
             "",
             "## Hand-off summary",
             f"Seven stages were completed with an engineer decision at each gate. {len(reqs)} requirement statements, {len(tasks)} tasks, "
-            f"{len(acs)} acceptance-criteria skeletons. The plan is a structured starting point, not a verified design.",
+            f"{len(acs)} acceptance-criteria skeletons, {skeletons} generated test skeletons. "
+            "The plan and drafts are a structured starting point, not a verified design or implementation.",
         ]
         return "\n".join(out)

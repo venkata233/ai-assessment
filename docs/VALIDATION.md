@@ -1,7 +1,7 @@
 # Validation and Security Review (T19)
 
-Date: 2026-11-20. Scope: `url-shortener/` as committed in Phase 3 (`ae592ce`) plus the Phase 4 fixes described here (not yet
-committed). Everything marked **verified** was run in this session; the last section lists what was *not* done.
+Date: 2026-11-20. Scope: `url-shortener/` as committed in Phase 3 (`ae592ce`) plus the Phase 4 fixes described here (committed afterwards in
+`47c847d`). Everything marked **verified** was run in this session; the last section lists what was *not* done.
 
 ## 1. Verdict
 
@@ -27,7 +27,7 @@ committed). Everything marked **verified** was run in this session; the last sec
 | Image scan | Trivy (`aquasec/trivy`) on `url-shortener:local`, fixed vulnerabilities | **Before:** 1 HIGH (`zlib1g` CVE-2026-85091) + 2 HIGH (`jaraco.context` CVE-2026-23949, `wheel` CVE-2026-24049, both vendored in pip/setuptools). **After fixes:** 0 HIGH/CRITICAL and 0 fixable at any severity | Point-in-time; unfixed CVEs were excluded (`--ignore-unfixed`); no CI job yet |
 | Independent code review | Read-only security-review agent, 70 SSRF/validator payloads run against the real module | 0 High, 0 Medium, 6 Low (section 3) | Same model family as the author; did not run Redis/PostgreSQL/Docker |
 | Live checks | Running compose stack: 401/404 ownership, delete, Redis outage and recovery, logs contain no key or raw client IP, read-only root filesystem (`touch` fails), fail-closed guard in the container, worker graceful stop (1.4 s) | as expected | Manual spot checks |
-| Mutation sanity | `.agent/mutation_check.py`: 22 deliberate bugs in a scratch copy | **20 killed**, 2 survived (deadlock lock-ordering; see ARCHITECTURE section 15) | **Not re-run after the Phase 4 fixes** (CPU), so the new tests have not been mutation-checked; 5 new mutants are defined in the script for the next run |
+| Mutation sanity | `url-shortener/tools/mutation_check.py`: 22 deliberate bugs in a scratch copy | **20 killed**, 2 survived (deadlock lock-ordering; see ARCHITECTURE section 15) | **Not re-run after the Phase 4 fixes** (CPU), so the new tests have not been mutation-checked; 5 new mutants are defined in the script for the next run. In Phase 6 the script was corrected (two stale patterns re-targeted; a mutant that cannot be applied, or whose tests already fail unmutated, is reported SKIPPED and never counted as killed) and a guard test proves all 27 patterns match the source, but the script **still has not been run** |
 | Migrations | upgrade, downgrade, upgrade, `alembic check`, single head | pass | One migration, empty database |
 
 ## 3. Triage of every finding

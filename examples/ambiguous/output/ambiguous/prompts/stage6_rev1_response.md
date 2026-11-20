@@ -8,10 +8,10 @@
 | R-3 | 'secure' left undefined leads to building the wrong thing | engineer to rate | engineer to rate | Resolve the question before building |
 | R-4 | 'easy' left undefined leads to building the wrong thing | engineer to rate | engineer to rate | Resolve the question before building |
 | R-5 | 'etc' left undefined leads to building the wrong thing | engineer to rate | engineer to rate | Resolve the question before building |
-| R-6 | HTTP API: failure or misuse | engineer to rate | engineer to rate | See validation plan |
-| R-7 | Persistent storage: failure or misuse | engineer to rate | engineer to rate | See validation plan |
-| R-8 | Cache: failure or misuse | engineer to rate | engineer to rate | See validation plan |
-| R-9 | Analytics / reporting: failure or misuse | engineer to rate | engineer to rate | See validation plan |
+| R-6 | HTTP API: failure or misuse | engineer to rate | engineer to rate | See the QA stage (stage 5) |
+| R-7 | Persistent storage: failure or misuse | engineer to rate | engineer to rate | See the QA stage (stage 5) |
+| R-8 | Cache: failure or misuse | engineer to rate | engineer to rate | See the QA stage (stage 5) |
+| R-9 | Analytics / reporting: failure or misuse | engineer to rate | engineer to rate | See the QA stage (stage 5) |
 
 ## AI-specific risks
 | Risk | Mitigation |
@@ -22,6 +22,7 @@
 | Secrets or personal data sent to a provider | Redaction plus the outbound confirmation gate |
 | Untrusted text steering the assistant (prompt injection) | Fence untrusted inputs; never execute model output |
 | Automation bias | Engineer decisions are explicit and logged |
+| Draft outputs treated as finished work | Output review checklist; test skeletons ship skipped; the QA stage verifies the outputs |
 
 ## Mitigations and accepted trade-offs
 - Record which risks are accepted, by whom, and why (TBD by engineer).

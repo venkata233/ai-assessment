@@ -56,7 +56,7 @@ def test_all_seven_stages_complete_with_the_mock_provider(
         "00_brief.md",
     } <= names
     assert verify(store.session_dir("s1") / "audit.jsonl")[0]
-    assert "Seven stages" in store.read_artifact("s1", "07_review.md")
+    assert "Seven stages" in store.read_artifact("s1", "07_summary.md")
 
 
 def test_g1_a_stage_cannot_be_skipped_or_decided_early(make_engine: MakeEngine) -> None:

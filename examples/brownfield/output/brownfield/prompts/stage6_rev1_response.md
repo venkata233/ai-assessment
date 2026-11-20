@@ -3,9 +3,9 @@
 ## Risk register
 | ID | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| R-1 | HTTP API: failure or misuse | engineer to rate | engineer to rate | See validation plan |
-| R-2 | Analytics / reporting: failure or misuse | engineer to rate | engineer to rate | See validation plan |
-| R-3 | Authentication and authorisation: failure or misuse | engineer to rate | engineer to rate | See validation plan |
+| R-1 | HTTP API: failure or misuse | engineer to rate | engineer to rate | See the QA stage (stage 5) |
+| R-2 | Analytics / reporting: failure or misuse | engineer to rate | engineer to rate | See the QA stage (stage 5) |
+| R-3 | Authentication and authorisation: failure or misuse | engineer to rate | engineer to rate | See the QA stage (stage 5) |
 | R-4 | HARDCODED_SECRET at app.py:8 | engineer to rate | engineer to rate | Reproduce with a test, then fix |
 | R-5 | HARDCODED_SECRET at app.py:9 | engineer to rate | engineer to rate | Reproduce with a test, then fix |
 | R-6 | HARDCODED_SECRET at app.py:10 | engineer to rate | engineer to rate | Reproduce with a test, then fix |
@@ -21,6 +21,7 @@
 | Secrets or personal data sent to a provider | Redaction plus the outbound confirmation gate |
 | Untrusted text steering the assistant (prompt injection) | Fence untrusted inputs; never execute model output |
 | Automation bias | Engineer decisions are explicit and logged |
+| Draft outputs treated as finished work | Output review checklist; test skeletons ship skipped; the QA stage verifies the outputs |
 
 ## Mitigations and accepted trade-offs
 - Record which risks are accepted, by whom, and why (TBD by engineer).

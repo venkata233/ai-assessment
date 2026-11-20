@@ -10,4 +10,4 @@ python -m copilot run --brief ..\examples\brownfield\brief.md --context ..\examp
 python -m copilot verify brownfield --out ..\examples\brownfield\output
 ```
 
-What to look at: `output/brownfield/01_requirements.md` (a table of rule-based findings, which are **candidates, not proof**; credentials appear only as `[REDACTED:...]`), `SUMMARY.md` (redaction counts), `audit.jsonl`. A test checks that none of the fake secret values appear anywhere under `output/`. The scanner caps the number of code-finding questions, so the second SQL finding (line 23) is listed in the table but has no question.
+What to look at: `output/brownfield/01_requirements.md` (a table of rule-based findings, which are **candidates, not proof**; credentials appear only as `[REDACTED:...]`), `04_output_generation.md` (a fix sketch per distinct finding rule, plus skipped test skeletons), `SUMMARY.md` (redaction counts), `audit.jsonl`. A test checks that none of the fake secret values appear anywhere under `output/`. The scanner caps the number of code-finding questions, so the second SQL finding (line 23) is listed in the table but has no question.

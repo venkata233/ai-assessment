@@ -16,7 +16,7 @@ Rules:
 
 # User
 
-STAGE 1 of 7: Requirement understanding
+STAGE 1 of 7: Requirement Understanding
 
 Task: Interpret the brief, surface ambiguities, label assumptions, state non-functional needs and acceptance criteria.
 

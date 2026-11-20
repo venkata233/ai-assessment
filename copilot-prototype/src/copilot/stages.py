@@ -1,8 +1,8 @@
-"""The seven stages and what each output must contain.
+"""The seven assessment stages and what each output must contain.
 
-ASSUMPTION (recorded in docs/COPILOT_PROTOTYPE.md): the original assessment brief was not available in the
-workspace, so the seven stages are derived from the delivery process this repository itself followed (requirements,
-decomposition, design, implementation with AI, validation, risks, documentation and self-review).
+The stage names are the engineer's required list (Phase 6 review): Requirement Understanding, Task Decomposition,
+AI-Assisted Development, Output Generation, QA, Risk Awareness, Engineering Summary. Architecture and design decisions are
+not a stage of their own: they are a required subtask section of Task Decomposition (stage 2).
 """
 
 from dataclasses import dataclass
@@ -22,7 +22,7 @@ STAGES: tuple[StageSpec, ...] = (
     StageSpec(
         1,
         "requirements",
-        "Requirement understanding",
+        "Requirement Understanding",
         "Interpret the brief, surface ambiguities, label assumptions, state non-functional needs and acceptance criteria.",
         (
             "Interpretation",
@@ -36,42 +36,50 @@ STAGES: tuple[StageSpec, ...] = (
     StageSpec(
         2,
         "decomposition",
-        "Task decomposition",
-        "Break the work into tasks with dependencies and an explicit split between AI assistance and engineer ownership.",
-        ("Tasks", "Dependencies", "AI assistance and engineer responsibility"),
+        "Task Decomposition",
+        "Break the work into tasks with dependencies and an explicit split between AI assistance and engineer ownership; "
+        "include the architecture and design decisions as a subtask.",
+        (
+            "Tasks",
+            "Dependencies",
+            "AI assistance and engineer responsibility",
+            "Architecture and design decisions",
+        ),
     ),
     StageSpec(
         3,
-        "design",
-        "Architecture and decisions",
-        "Propose components and the decisions that need the engineer, each with options and trade-offs.",
-        ("Components", "Decisions required", "Interfaces and data", "Trade-offs"),
+        "ai_development",
+        "AI-Assisted Development",
+        "Drive the build task by task with an AI assistant: a prompt for each accepted task, the failure modes to expect, "
+        "an iteration log (AI suggestion, issue found, refined prompt, decision) and the review the engineer applies to AI output.",
+        ("Task prompts", "Expected failure modes", "Iteration log", "Review checklist"),
     ),
     StageSpec(
         4,
-        "implementation",
-        "Implementation plan with AI",
-        "Plan how AI is used per task, which failure modes to expect, and how each output is reviewed.",
-        ("Prompts", "Expected failure modes", "Review checklist"),
+        "output_generation",
+        "Output Generation",
+        "Produce the draft deliverables from the accepted stages: a deliverables manifest, acceptance-test skeletons, "
+        "fix sketches for flagged code, a change summary, and the checks that must pass before any draft is used.",
+        ("Deliverables", "Draft artifacts", "Output review checklist"),
     ),
     StageSpec(
         5,
-        "validation",
-        "Validation plan",
-        "Define tests, security checks, and traceability from acceptance criteria to evidence.",
-        ("Test strategy", "Security checks", "Traceability"),
+        "qa",
+        "QA",
+        "Define tests, security checks, traceability from acceptance criteria to evidence, and how the generated outputs are verified.",
+        ("Test strategy", "Security checks", "Traceability", "Output verification"),
     ),
     StageSpec(
         6,
-        "risks",
-        "Risks and trade-offs",
+        "risk_awareness",
+        "Risk Awareness",
         "Record product and AI-specific risks with likelihood, impact, and mitigation.",
         ("Risk register", "AI-specific risks", "Mitigations and accepted trade-offs"),
     ),
     StageSpec(
         7,
-        "review",
-        "Documentation and self-review",
+        "summary",
+        "Engineering Summary",
         "Check completeness, list unverified claims and open items, and write the hand-off summary.",
         ("Traceability matrix", "Unverified claims", "Open items", "Hand-off summary"),
     ),

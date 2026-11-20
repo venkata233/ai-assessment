@@ -9,13 +9,13 @@
       "Q3": "Structured logs plus request count, error rate and p95 latency metrics"
     }
   },
-  { "stage": 2, "action": "accept", "notes": "scripted example decision" },
   {
-    "stage": 3,
+    "stage": 2,
     "action": "modify",
-    "notes": "scripted example decision: add an explicit constraint the generated design does not state",
+    "notes": "scripted example decision: add an explicit design constraint the generated design subtask does not state",
     "append": "## Engineer addition\nAlias uniqueness is enforced by a database UNIQUE constraint, not by a check-then-insert in application code."
   },
+  { "stage": 3, "action": "accept", "notes": "scripted example decision" },
   { "stage": 4, "action": "accept", "notes": "scripted example decision" },
   { "stage": 5, "action": "accept", "notes": "scripted example decision" },
   { "stage": 6, "action": "accept", "notes": "scripted example decision" },

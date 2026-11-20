@@ -35,19 +35,26 @@ DOUBLE_CHECK: dict[int, tuple[str, ...]] = {
         "Numbers are quoted from the brief, not invented.",
         "Assumptions are labelled.",
     ),
-    2: ("Each task has an owner split.", "Dependencies are acyclic.", "Nothing in the brief lacks a task."),
-    3: (
-        "Each decision lists at least two options.",
-        "No decision is silently made.",
-        "Trade-offs name what is given up.",
+    2: (
+        "Each task has an owner split.",
+        "Dependencies are acyclic.",
+        "Nothing in the brief lacks a task.",
+        "Each design decision lists at least two options, names what is given up, and none is silently made.",
     ),
-    4: (
+    3: (
         "Each prompt states constraints and a checkable output format.",
         "Known failure modes are tied to tasks.",
+        "The iteration log records what the AI produced and what the engineer changed; nothing is invented.",
+    ),
+    4: (
+        "Every draft traces to an accepted task or acceptance criterion.",
+        "Nothing is presented as tested or run.",
+        "Generated code is a template to adapt, not a finished change.",
     ),
     5: (
         "Every acceptance criterion maps to a test or a check.",
         "Security checks match the actual features.",
+        "Every generated output has a way to be verified.",
     ),
     6: ("Likelihood and impact are proposals for the engineer to rate.", "AI-specific risks are included."),
     7: (

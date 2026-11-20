@@ -1,6 +1,6 @@
 # Engineering Copilot prototype (Part A)
 
-Status: **Phase 5 built and tested offline; not committed.** Code: [`copilot-prototype/`](../copilot-prototype). Examples: [`examples/`](../examples).
+Status: **Phase 5 built and tested offline; committed in `47c847d`; awaiting the engineer's review.** Code: [`copilot-prototype/`](../copilot-prototype). Examples: [`examples/`](../examples).
 
 ## 1. Read this first: what this is and is not
 
@@ -9,13 +9,26 @@ Status: **Phase 5 built and tested offline; not committed.** Code: [`copilot-pro
 - The `openai` provider (any OpenAI-compatible `/chat/completions` endpoint) exists but has been **tested only against a local stub server**. It has **never been run against a real service** (no key was available). Treat it as unverified.
 - Decisions in the examples are **scripted** (read from `decisions.json`) and recorded as `scripted`. They are not human decisions and are labelled that way in every audit log and summary.
 
-## 2. Assumptions (please confirm)
+## 2. The seven stages (the engineer's required names)
 
-The original assessment brief was not in the workspace. The only specification found is task T23 in [PHASE1_REQUIREMENTS_AND_PLAN.md](PHASE1_REQUIREMENTS_AND_PLAN.md): *"CLI/web UI, 7-stage engine, providers, redaction, mock mode, 3 examples; runs offline in mock mode; engineer designs HITL gates and redaction rules."* Therefore:
+The stage names are the engineer's required list, supplied in the Phase 6 review. The original brief was not in the workspace when Part A was first built, so the first version used AI-derived names ([PHASE1_REQUIREMENTS_AND_PLAN.md](PHASE1_REQUIREMENTS_AND_PLAN.md) T23 only said *"7-stage engine"*); that version is superseded. **Architecture and design decisions are not a stage of their own**: they are the design subtask of Task Decomposition. Each stage's required headings drive gate G2.
+
+| # | Stage (exact name) | Artifact | What the stage produces in mock mode | Required headings |
+|---|---|---|---|---|
+| 1 | Requirement Understanding | `01_requirements.md` | Interpretation, ambiguities as assumptions (A-n) and open questions (Q-n), non-functional coverage, edge cases, acceptance criteria; for brownfield, rule-based code-scan findings | Interpretation; Ambiguities and assumptions; Non-functional requirements; Edge cases; Acceptance criteria; Open questions |
+| 2 | Task Decomposition | `02_decomposition.md` | A task table (including a "Decide the architecture" design task), dependencies, the AI/engineer split, and the **design subtask**: components, options and trade-offs for each decision (each ends in `DECISION REQUIRED`), interfaces and data | Tasks; Dependencies; AI assistance and engineer responsibility; Architecture and design decisions |
+| 3 | AI-Assisted Development | `03_ai_development.md` | A prompt for each build or fix task, **built from the engineer-accepted task table, acceptance criteria and design decisions** (an edited table changes the prompts); expected failure modes tied to each task; an **iteration log** (AI suggestion v1, issue the engineer found, refined prompt, outcome) left as `TBD` for the engineer; a review checklist. The tool prepares and records AI-assisted development; it does not write the code | Task prompts; Expected failure modes; Iteration log; Review checklist |
+| 4 | Output Generation | `04_output_generation.md` | **Draft deliverables generated from the accepted stages:** a manifest (task, deliverable, check before use, status `DRAFT`); one **skipped** acceptance-test skeleton per acceptance criterion; for brownfield code, a fix sketch per distinct finding rule (unique constraint with `ON CONFLICT`, bound parameters, `secrets`, SHA-256, environment variables, and so on); a draft change summary. Rule-based templates, untested | Deliverables; Draft artifacts; Output review checklist |
+| 5 | QA | `05_qa.md` | Test strategy per acceptance criterion, security checks by component, traceability, and **how each generated output is verified** | Test strategy; Security checks; Traceability; Output verification |
+| 6 | Risk Awareness | `06_risk_awareness.md` | Risk register (likelihood and impact left for the engineer to rate), AI-specific risks including draft outputs treated as finished work, mitigations and accepted trade-offs | Risk register; AI-specific risks; Mitigations and accepted trade-offs |
+| 7 | Engineering Summary | `07_summary.md` | Requirement-to-task traceability (mapped from the accepted task table), unverified claims (placeholders, assumptions, skipped skeletons), open items, hand-off summary | Traceability matrix; Unverified claims; Open items; Hand-off summary |
+
+**What changed from the first version (Phase 6 correction).** Stages 1 and 2 kept their content. The former stage 3 "Architecture and decisions" was removed as a stage and moved into stage 2 as the design subtask. The former stage 4 "Implementation plan with AI" became stage 3: its prompts, failure modes and review checklist stayed, prompts are now built from the *accepted* tasks, failure modes are tied to tasks (matched on whole words), and the iteration log was added. Stage 4 Output Generation is new. Validation plan, Risks and trade-offs, and Documentation and self-review became QA (plus Output verification), Risk Awareness and Engineering Summary. The three examples were regenerated, so their audit hashes changed; the earlier outputs exist only in git history (`47c847d`). **Honest limits:** in mock mode nothing here is written by a model; stage 3 prepares and records the engineer's AI-assisted work, stage 4 fills templates, and every generated draft is untested and marked as such.
+
+## 2a. Other assumptions (please confirm)
 
 | Assumption | Why it matters |
 |---|---|
-| The **seven stages are my interpretation**, taken from this repository's own process: 1 Requirement understanding, 2 Task decomposition, 3 Architecture and decisions, 4 Implementation plan with AI, 5 Validation plan, 6 Risks and trade-offs, 7 Documentation and self-review. | If the real brief names other stages, `stages.py` and `providers/mock.py` need changing. |
 | The three examples are *greenfield*, *brownfield* and *ambiguous* (names taken from the layout in the plan). | Content of each brief is my own. |
 | Stdlib-only, no web framework, no third-party runtime dependency. | Keeps it runnable offline and cheap on the laptop; the UI is deliberately minimal. |
 
@@ -29,7 +42,7 @@ cli.py / web.py  --->  engine.py (state machine + gates G1-G6)  --->  providers/
 ```
 
 - `engine.py` owns every rule; the CLI and the web UI only collect decisions, so no front end can bypass a gate.
-- Each session is a folder: `00_brief.md`, `01_requirements.md` ... `07_review.md`, `SUMMARY.md`, `session.json`, `audit.jsonl`, `prompts/`.
+- Each session is a folder: `00_brief.md`, `01_requirements.md`, `02_decomposition.md`, `03_ai_development.md`, `04_output_generation.md`, `05_qa.md`, `06_risk_awareness.md`, `07_summary.md`, `SUMMARY.md`, `session.json`, `audit.jsonl`, `prompts/`.
 
 ## 4. Human-in-the-loop gates (enforced in `engine.py`)
 
@@ -95,7 +108,7 @@ Each folder has `brief.md`, `decisions.json`, `README.md` and `output/<name>/` (
 
 | Example | What it shows |
 |---|---|
-| [greenfield](../examples/greenfield) | A clear brief with numbers: only 3 questions (the unstated non-functionals); a `modify` decision that appends an engineer constraint. |
+| [greenfield](../examples/greenfield) | A clear brief with numbers: only 3 questions (the unstated non-functionals); a `modify` decision at stage 2 that appends an engineer constraint to the design subtask. |
 | [ambiguous](../examples/ambiguous) | "Scalable, fast, secure, easy, etc.": 11 questions; the first proposal is **rejected** with a reason (G4), then accepted with answers (G3). |
 | [brownfield](../examples/brownfield) | Legacy code with a check-then-insert race, string-built SQL, `random`, `md5` and three fake credentials: the scanner flags them, redaction removes the values (AWS docs example key and made-up passwords), and the engineer answers the code-finding questions. |
 
@@ -105,7 +118,7 @@ Regenerate: see the command in each example README.
 
 | Item | Status |
 |---|---|
-| Unit/integration tests (`copilot-prototype/tests`) | **123 passed, 1 skipped** on Windows, Python 3.11.4. Skipped: the symlink-handling test needs privileges, so that path is **unverified here**. |
+| Unit/integration tests (`copilot-prototype/tests`) | 132 tests collected. After the Phase 6 stage correction these were re-run: `test_providers` (31), `test_engine`, `test_cli`, `test_web` (47 together) and `test_examples` (4): **all pass**. `test_analyzers`, `test_audit`, `test_context` and `test_redaction` (50) were not touched and **not re-run** in that step; the last full run (before the correction) was 123 passed, 1 skipped on Windows, Python 3.11.4. The skipped test (symlink handling) needs privileges, so that path is **unverified here**. |
 | ruff, ruff format, mypy (strict, 17 files) | Clean |
 | Examples reproducible | Verified by `tests/test_examples.py` |
 | Real model output | **Not verified.** Mock mode contains no AI. |

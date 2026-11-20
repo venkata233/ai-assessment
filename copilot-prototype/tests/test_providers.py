@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -88,9 +89,114 @@ def test_mock_never_makes_decisions_for_the_engineer() -> None:
         "previous": {},
         "feedback": [],
     }
-    design = MockProvider().complete(CompletionRequest(3, "", "", inputs)).text
+    design = MockProvider().complete(CompletionRequest(2, "", "", inputs)).text
     assert "Engineer decision: ____ (DECISION REQUIRED)" in design
     assert "we chose" not in design.lower() and "recommended" not in design.lower()
+
+
+REQUIRED_STAGE_NAMES = [
+    "Requirement Understanding",
+    "Task Decomposition",
+    "AI-Assisted Development",
+    "Output Generation",
+    "QA",
+    "Risk Awareness",
+    "Engineering Summary",
+]
+LEGACY_CODE = (
+    "def create(db, code, url):\n"
+    "    row = db.execute(\"SELECT 1 FROM links WHERE code = '%s'\" % code).fetchone()\n"
+    "    if row is None:\n"
+    "        db.execute(f\"INSERT INTO links (code, url) VALUES ('{code}', '{url}')\")\n"
+    "    return code\n"
+)
+
+
+def run_all_stages(brief: str, files: list[tuple[str, str]] | None = None) -> dict[int, str]:
+    """Feed each stage the previous stages' output, as the engine does after the engineer accepts them."""
+    previous: dict[int, str] = {}
+    for spec in STAGES:
+        inputs = {"brief": brief, "context_files": files or [], "previous": dict(previous), "feedback": []}
+        previous[spec.number] = MockProvider().complete(CompletionRequest(spec.number, "", "", inputs)).text
+    return previous
+
+
+def test_the_seven_stages_use_the_required_names_in_order() -> None:
+    assert [s.title for s in STAGES] == REQUIRED_STAGE_NAMES
+    assert [s.number for s in STAGES] == [1, 2, 3, 4, 5, 6, 7]
+    assert not any("architecture" in s.title.lower() for s in STAGES)
+
+
+def test_architecture_is_a_subtask_of_task_decomposition_not_a_stage() -> None:
+    outputs = run_all_stages("Build an API with a database and a cache. Users need analytics.")
+    stage2 = outputs[2]
+    assert "## Architecture and design decisions" in stage2 and "### Components" in stage2
+    assert "Decide the architecture and record each design decision" in stage2
+    assert "Engineer decision: ____ (DECISION REQUIRED)" in stage2
+    # implementation tasks wait for the design task
+    assert "depends on T01" in stage2 or "depends on T02" in stage2
+
+
+def test_ai_assisted_development_builds_prompts_from_the_accepted_tasks_and_logs_iterations() -> None:
+    brief = "Build an API with a database. Users must create aliases."
+    stage2 = run_all_stages(brief)[2]
+    edited = stage2.replace("Implement: ", "Implement (engineer reworded): ", 1)
+    inputs = {"brief": brief, "context_files": [], "previous": {1: "", 2: edited}, "feedback": []}
+    text = MockProvider().complete(CompletionRequest(3, "", "", inputs)).text
+    assert (
+        "Implement (engineer reworded)" in text
+    )  # the accepted (edited) table is used, not a recomputed one
+    assert "### Prompt 1 (T" in text and "Write the test first" in text
+    assert "## Iteration log" in text and "TBD: after running the prompt" in text
+    assert "| Applies to | Failure mode | Check by |" in text
+    assert "```diff" not in text and "def " not in text  # it prepares AI-assisted work; it writes no code
+
+
+def test_output_generation_produces_skeletons_and_fix_sketches_from_accepted_stages() -> None:
+    outputs = run_all_stages("Build an API. Admins must see click counts.", [("legacy/app.py", LEGACY_CODE)])
+    stage4 = outputs[4]
+    criteria = len(set(re.findall(r"^- (AC-\d+):", outputs[1], re.M)))
+    assert criteria >= 1 and stage4.count("def test_ac_") == criteria
+    assert (
+        stage4.count('@pytest.mark.skip(reason="skeleton') == criteria
+    )  # a skeleton can never pass as a test
+    assert "#### CHECK_THEN_INSERT" in stage4 and "ON CONFLICT" in stage4
+    assert "#### SQL_STRING_BUILDING" in stage4 and "bound parameter" in stage4
+    assert "Status" in stage4 and "DRAFT" in stage4 and "Nothing here was executed" in stage4
+
+
+def test_output_generation_follows_the_engineer_edited_acceptance_criteria() -> None:
+    brief = "Build an API. Admins must see click counts."
+    outputs = run_all_stages(brief)
+    edited = outputs[1].replace("- AC-1:", "- AC-7:", 1)
+    inputs = {"brief": brief, "context_files": [], "previous": {1: edited, 2: outputs[2]}, "feedback": []}
+    text = MockProvider().complete(CompletionRequest(4, "", "", inputs)).text
+    assert "def test_ac_7(" in text and "def test_ac_1(" not in text
+
+
+def test_failure_modes_match_whole_words_not_substrings() -> None:
+    # 'HARDCODED' contains 'code' and the finding names a 'secret': neither may pull in unrelated failure modes
+    outputs = run_all_stages("Build an API.", [("cfg.py", 'ADMIN_PASSWORD = "hunter2-not-real"\n')])
+    stage3 = outputs[3]
+    assert "HARDCODED_SECRET" in stage3
+    assert "Check-then-insert" not in stage3 and "randomness" not in stage3
+
+
+def test_fix_sketches_only_appear_when_code_was_supplied() -> None:
+    outputs = run_all_stages("Build an API with a database.")
+    assert "### Fix sketches" not in outputs[4]
+
+
+def test_qa_verifies_the_generated_outputs_and_the_summary_counts_them() -> None:
+    outputs = run_all_stages("Build an API. Admins must see click counts.", [("app.py", LEGACY_CODE)])
+    assert "## Output verification" in outputs[5] and "Fix sketches" in outputs[5]
+    assert "Acceptance-test skeletons" in outputs[5]
+    summary = outputs[7]
+    skeletons = outputs[4].count("def test_ac_")
+    assert f"{skeletons} generated test skeletons" in summary
+    assert "no generated output was executed or tested" in summary
+    matrix = summary.split("## Traceability matrix")[1].split("## Unverified claims")[0]
+    assert "MISSING" not in matrix and "| R1 | AC-1 | T" in matrix
 
 
 def test_openai_provider_sends_the_key_and_parses_the_answer() -> None:

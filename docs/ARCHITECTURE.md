@@ -3,7 +3,7 @@
 Scope: Part B (URL shortener service) and how AI assistance is integrated into building it. Part A (the Engineering Copilot tool) is described in [COPILOT_PROTOTYPE.md](COPILOT_PROTOTYPE.md).
 Status: Phase 2 design, **implemented in Phase 3** (`url-shortener/src/shortener/`). Behaviour statements are *design intent* unless marked **verified**; section 15 lists what Phase 3 actually verified, where the implementation differs from this design, and what is still unproven.
 
-> **Provisional design targets (not verified capacity):** 100 M links, 5 k redirects/s peak, 50 creates/s. They size the design; only Phase 4 load tests will say what the implementation achieves.
+> **Provisional design targets (not verified capacity):** 100 M links, 5 k redirects/s peak, 50 creates/s. They size the design; they are **still unverified**: Phase 4 load testing was partial (see [LOAD_TEST.md](LOAD_TEST.md)).
 
 ## 1. Context
 
@@ -230,7 +230,7 @@ Contracts: [openapi.yaml](../url-shortener/openapi.yaml) · [DB_SCHEMA.md](DB_SC
 
 ## 15. Phase 3 implementation notes (what was built, verified, and changed)
 
-**Verified by running (2026-11-20, Windows host, Docker Desktop 29.9.3, PostgreSQL 16 and Redis 7 in containers):**
+**Verified by running (2026-11-20, Windows host, Docker 29.9.3 under Docker Desktop, PostgreSQL 16 and Redis 7 in containers):**
 
 | Claim | Evidence |
 |---|---|
@@ -241,7 +241,7 @@ Contracts: [openapi.yaml](../url-shortener/openapi.yaml) · [DB_SCHEMA.md](DB_SC
 | Redirect works with Redis down; analytics emit never delays the response | integration test AC-11, ASGI-level test that the response completes before the (slow) publish, live check with `docker compose stop redis` |
 | Migrations round-trip and models match them | `alembic upgrade → downgrade base → upgrade`, `alembic check` (no drift), single head |
 | Static checks | `ruff`, `mypy --strict` (36 files), `bandit` (0 findings), `pip-audit` (no known vulnerabilities), Trivy on the image (clean after Phase 4 fixes) |
-| Test strength | 426 tests (Phase 4 count; 384 at the Phase 3 commit), 96 % statement/branch coverage overall, 99 % on `link_service.py`; manual mutation run in `.agent/mutation_check.py` (20 of 22 mutants killed; see AI_USAGE_LOG entry 026; not repeated after the Phase 4 fixes) |
+| Test strength | 426 tests (Phase 4 count; 384 at the Phase 3 commit), 96 % statement/branch coverage overall, 99 % on `link_service.py`; manual mutation run in `url-shortener/tools/mutation_check.py` (20 of 22 mutants killed in Phase 3; see AI_USAGE_LOG entry 026; not repeated after the Phase 4 fixes; the script was corrected in Phase 6 and has not been run since) |
 
 **Differences from the Phase 2 design (all deliberate, each found by running the system):**
 

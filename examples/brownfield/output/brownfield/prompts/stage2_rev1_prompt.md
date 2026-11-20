@@ -16,14 +16,15 @@ Rules:
 
 # User
 
-STAGE 2 of 7: Task decomposition
+STAGE 2 of 7: Task Decomposition
 
-Task: Break the work into tasks with dependencies and an explicit split between AI assistance and engineer ownership.
+Task: Break the work into tasks with dependencies and an explicit split between AI assistance and engineer ownership; include the architecture and design decisions as a subtask.
 
 Required level-2 headings, in order:
 ## Tasks
 ## Dependencies
 ## AI assistance and engineer responsibility
+## Architecture and design decisions
 
 <<<UNTRUSTED_DATA BRIEF
 # Brief: duplicate aliases succeed in the legacy shortener
@@ -150,3 +151,4 @@ Before answering, double-check:
 - Each task has an owner split.
 - Dependencies are acyclic.
 - Nothing in the brief lacks a task.
+- Each design decision lists at least two options, names what is given up, and none is silently made.

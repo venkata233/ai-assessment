@@ -16,15 +16,15 @@ Rules:
 
 # User
 
-STAGE 3 of 7: Architecture and decisions
+STAGE 3 of 7: AI-Assisted Development
 
-Task: Propose components and the decisions that need the engineer, each with options and trade-offs.
+Task: Drive the build task by task with an AI assistant: a prompt for each accepted task, the failure modes to expect, an iteration log (AI suggestion, issue found, refined prompt, decision) and the review the engineer applies to AI output.
 
 Required level-2 headings, in order:
-## Components
-## Decisions required
-## Interfaces and data
-## Trade-offs
+## Task prompts
+## Expected failure modes
+## Iteration log
+## Review checklist
 
 <<<UNTRUSTED_DATA BRIEF
 Build a scalable URL shortener service with APIs, persistence and analytics. It should be fast and secure and easy to use, etc.
@@ -113,23 +113,74 @@ UNTRUSTED_DATA>>>
 | ID | Title | Definition of done | AI assists with | Engineer owns |
 |---|---|---|---|---|
 | T01 | Resolve open questions into measurable acceptance criteria | TBD by engineer | Draft questions and criteria | Answer the questions; own the numbers |
-| T02 | Implement: Build a scalable URL shortener service with APIs, persistence and ana… | TBD by engineer | Draft implementation and test skeleton | Decide behaviour and interfaces; review every line |
-| T03 | Implement: It should be fast and secure and easy to use, etc. | TBD by engineer | Draft implementation and test skeleton | Decide behaviour and interfaces; review every line |
-| T04 | Write automated tests including adversarial and edge cases | TBD by engineer | Generate test tables and skeletons | Judge test value; try breaking the code on purpose |
-| T05 | Document and self-review | TBD by engineer | Draft prose | Verify every command and claim |
+| T02 | Decide the architecture and record each design decision | TBD by engineer | Draft options and trade-off tables | Choose each option; record why (an ADR per decision) |
+| T03 | Implement: Build a scalable URL shortener service with APIs, persistence and ana… | TBD by engineer | Draft implementation and test skeleton | Decide behaviour and interfaces; review every line |
+| T04 | Implement: It should be fast and secure and easy to use, etc. | TBD by engineer | Draft implementation and test skeleton | Decide behaviour and interfaces; review every line |
+| T05 | Write automated tests including adversarial and edge cases | TBD by engineer | Generate test tables and skeletons | Judge test value; try breaking the code on purpose |
+| T06 | Document and self-review | TBD by engineer | Draft prose | Verify every command and claim |
 
 ## Dependencies
-- T02 depends on T01
-- T03 depends on T01
-- T04 depends on: T02, T03
-- T05 depends on T04
+- T03 depends on T01, T02
+- T04 depends on T01, T02
+- T05 depends on: T03, T04
+- T06 depends on T05
 
 ## AI assistance and engineer responsibility
 - AI drafts; the engineer decides, reviews, and runs everything.
 - Anything marked 'DECISION REQUIRED' or 'TBD by engineer' is not done until the engineer resolves it.
+
+## Architecture and design decisions
+This is the design subtask (task 'Decide the architecture'): the engineer decides, the tool only lays out options.
+
+### Components
+| Component | Responsibility |
+|---|---|
+| HTTP API | Handles: http api (derived from wording in the brief) |
+| Persistent storage | Handles: persistent storage (derived from wording in the brief) |
+| Cache | Handles: cache (derived from wording in the brief) |
+| Analytics / reporting | Handles: analytics / reporting (derived from wording in the brief) |
+
+### Decisions required
+#### HTTP API
+| Option | Gains | Costs |
+|---|---|---|
+| REST over JSON | widely understood | chatty for complex queries |
+| GraphQL | clients choose fields | query cost control needed |
+| gRPC | typed, efficient | less browser-friendly |
+Engineer decision: ____ (DECISION REQUIRED)
+
+#### Persistent storage
+| Option | Gains | Costs |
+|---|---|---|
+| Relational database | constraints and transactions enforce uniqueness and integrity | schema changes need migrations |
+| Document store | flexible schema | weaker cross-record guarantees |
+| Key-value store | very simple fast lookups | limited querying |
+Engineer decision: ____ (DECISION REQUIRED)
+
+#### Cache
+| Option | Gains | Costs |
+|---|---|---|
+| Shared cache (cache-aside) | fewer reads on the primary store; shared by replicas | invalidation and staleness to manage |
+| In-process cache | no extra infrastructure | per-instance state; stale across replicas |
+| No cache until measured | simplest | may miss a latency target |
+Engineer decision: ____ (DECISION REQUIRED)
+
+#### Analytics / reporting
+| Option | Gains | Costs |
+|---|---|---|
+| Aggregate in the primary database | one datastore | load on the primary at scale |
+| Dedicated analytics store | isolates heavy queries | extra system and pipeline |
+| Pre-computed rollups | fast reads | more write-side complexity |
+Engineer decision: ____ (DECISION REQUIRED)
+
+### Interfaces and data
+- Derive entities and operations from requirements R1, R2 (TBD by engineer).
+
+### Trade-offs
+- Each option above gives something up; record the chosen trade-off and why (an ADR per decision).
 UNTRUSTED_DATA>>>
 
 Before answering, double-check:
-- Each decision lists at least two options.
-- No decision is silently made.
-- Trade-offs name what is given up.
+- Each prompt states constraints and a checkable output format.
+- Known failure modes are tied to tasks.
+- The iteration log records what the AI produced and what the engineer changed; nothing is invented.

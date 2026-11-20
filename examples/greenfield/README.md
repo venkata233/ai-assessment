@@ -10,4 +10,4 @@ python -m copilot run --brief ..\examples\greenfield\brief.md --decisions ..\exa
 python -m copilot verify greenfield --out ..\examples\greenfield\output
 ```
 
-What to look at: `output/greenfield/01_requirements.md` (only 3 open questions, for the non-functionals the brief does not state), `03_design.md` (engineer-appended constraint from a `modify` decision), `audit.jsonl`, `SUMMARY.md`.
+What to look at: `output/greenfield/01_requirements.md` (only 3 open questions, for the non-functionals the brief does not state), `02_decomposition.md` (the design subtask, with an engineer-appended constraint from a `modify` decision at stage 2), `03_ai_development.md` (task prompts, failure modes, an empty iteration log for the engineer), `04_output_generation.md` (test skeletons, all skipped), `audit.jsonl`, `SUMMARY.md`.
