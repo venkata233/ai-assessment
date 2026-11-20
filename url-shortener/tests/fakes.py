@@ -90,9 +90,11 @@ class InMemoryCache:
         item = self.data.get(code)
         return item[0] if item else None
 
-    async def put(self, code: str, entry: CacheEntry, ttl_seconds: int) -> None:
-        if not self.down:
-            self.data[code] = (entry, ttl_seconds)
+    async def put(self, code: str, entry: CacheEntry, ttl_seconds: int) -> bool:
+        if self.down:
+            return False
+        self.data[code] = (entry, ttl_seconds)
+        return True
 
     async def put_if_absent(self, code: str, entry: CacheEntry, ttl_seconds: int) -> None:
         if not self.down and code not in self.data:
@@ -199,6 +201,9 @@ def make_settings(**overrides: object) -> Settings:
         "base_url": "http://short.test",
         "analytics_secret": "unit-test-analytics-secret",
         "dns_check_enabled": False,
+        "allow_dev_credentials": True,  # the tests use the published demo keys on a non-local BASE_URL
+        "metrics_enabled": True,
+        "trust_geo_header": True,
         "rate_limit_create_per_min": 1000,
         "rate_limit_api_per_min": 1000,
         "rate_limit_redirect_per_min": 1000,

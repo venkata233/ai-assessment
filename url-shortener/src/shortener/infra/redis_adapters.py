@@ -73,25 +73,27 @@ class RedisLinkCache:
             self._error("get", exc)
             return None
 
-    async def put(self, code: str, entry: CacheEntry, ttl_seconds: int) -> None:
-        await self._write("put", code, entry, ttl_seconds, nx=False)
+    async def put(self, code: str, entry: CacheEntry, ttl_seconds: int) -> bool:
+        return await self._write("put", code, entry, ttl_seconds, nx=False)
 
     async def put_if_absent(self, code: str, entry: CacheEntry, ttl_seconds: int) -> None:
         await self._write("put_if_absent", code, entry, ttl_seconds, nx=True)
 
     async def _write(
         self, operation: str, code: str, entry: CacheEntry, ttl_seconds: int, *, nx: bool
-    ) -> None:
+    ) -> bool:
+        """True when Redis accepted the write (for nx writes: also when the key already existed)."""
         if not self._breaker.allow():
             self._metrics.inc("cache_errors_total")
-            return
+            return False
         try:
             await self._redis.set(_key(code), _encode(entry), ex=ttl_seconds, nx=nx)
         except _REDIS_FAILURES as exc:
             self._breaker.record_failure()
             self._error(operation, exc)
-        else:
-            self._breaker.record_success()
+            return False
+        self._breaker.record_success()
+        return True
 
 
 class RedisClickPublisher:

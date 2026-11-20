@@ -5,7 +5,6 @@ import os
 import signal
 import socket
 import uuid
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from redis.asyncio import Redis
@@ -15,6 +14,7 @@ from shortener.api.app import create_app
 from shortener.api.container import Container
 from shortener.config import Settings
 from shortener.domain.codes import RandomBase62Generator
+from shortener.domain.url_validator import own_origins_from_base_url
 from shortener.infra.circuit_breaker import CircuitBreaker
 from shortener.infra.db import create_db_engine, create_redis, database_is_up, redis_is_up
 from shortener.infra.redis_adapters import (
@@ -34,13 +34,6 @@ from shortener.services.rate_limiter import RateLimiter
 from shortener.worker.consumer import GROUP, ClickConsumer
 
 
-def _own_origins(base_url: str) -> frozenset[tuple[str, int]]:
-    parts = urlsplit(base_url)
-    host = (parts.hostname or "").lower()
-    port = parts.port or (443 if parts.scheme == "https" else 80)
-    return frozenset({(host, port)})
-
-
 def build_container(settings: Settings, engine: AsyncEngine, redis: Redis) -> Container:
     metrics = Metrics()
     clock = SystemClock()
@@ -52,7 +45,7 @@ def build_container(settings: Settings, engine: AsyncEngine, redis: Redis) -> Co
         generator=RandomBase62Generator(settings.code_length),
         dns=SystemDnsResolver(settings.dns_timeout_seconds),
         metrics=metrics,
-        own_origins=_own_origins(settings.base_url),
+        own_origins=own_origins_from_base_url(settings.base_url),
         cache_ttl_seconds=settings.cache_ttl_seconds,
         negative_cache_ttl_seconds=settings.negative_cache_ttl_seconds,
         dns_check_enabled=settings.dns_check_enabled,

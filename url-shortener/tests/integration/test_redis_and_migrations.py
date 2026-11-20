@@ -76,6 +76,17 @@ async def test_publisher_writes_the_documented_fields_and_bounds_the_stream(redi
     assert await redis.ttl("clicks") == -1  # the stream has no TTL: the cache can never expire it
 
 
+async def test_cache_writes_report_whether_redis_accepted_them(redis: Redis) -> None:
+    from redis.asyncio import Redis as R
+
+    assert await RedisLinkCache(redis, Metrics()).put("ok1", ACTIVE, 60) is True
+    dead = R.from_url("redis://127.0.0.1:6390/0", socket_connect_timeout=0.2)
+    try:
+        assert await RedisLinkCache(dead, Metrics()).put("x1", CacheEntry("deleted"), 60) is False
+    finally:
+        await dead.aclose()
+
+
 async def test_publisher_never_raises_and_counts_drops() -> None:
     from redis.asyncio import Redis as R
 

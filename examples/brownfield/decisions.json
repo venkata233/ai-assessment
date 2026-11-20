@@ -1,0 +1,25 @@
+[
+  {
+    "stage": 1,
+    "action": "accept",
+    "notes": "scripted example decision",
+    "answers": {
+      "Q1": "ASSUME",
+      "Q2": "ASSUME",
+      "Q3": "ASSUME",
+      "Q4": "ASSUME",
+      "Q5": "ASSUME",
+      "Q6": "No. Credential in source (shown redacted): move to an environment variable and rotate it",
+      "Q7": "No. Same finding: move to the environment and rotate",
+      "Q8": "No. Same finding: move to the environment and rotate",
+      "Q9": "No. This is the reported bug: two concurrent creates can both pass the SELECT and both INSERT",
+      "Q10": "No. String-built SQL is an injection risk and must use bound parameters"
+    }
+  },
+  { "stage": 2, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 3, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 4, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 5, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 6, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 7, "action": "accept", "notes": "scripted example decision" }
+]

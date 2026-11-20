@@ -1,0 +1,9 @@
+{
+  "files": [
+    {
+      "path": "app.py",
+      "text": "\"\"\"Legacy shortener used as brownfield input. All credentials below are fake documentation values.\"\"\"\n\nimport hashlib\nimport random\nimport sqlite3\nimport string\n\nADMIN_PASSWORD = \"[REDACTED:SECRET_VALUE:1]\"\nAWS_ACCESS_KEY_ID = \"[REDACTED:AWS_ACCESS_KEY:1]\"\nAWS_SECRET_ACCESS_KEY = \"[REDACTED:SECRET_VALUE:2]\"\n\ndb = sqlite3.connect(\"links.db\")\n\n\ndef random_code(length=6):\n    return \"\".join(random.choice(string.ascii_letters) for _ in range(length))\n\n\ndef create_link(url, alias=None):\n    code = alias or random_code()\n    row = db.execute(\"SELECT 1 FROM links WHERE code = '%s'\" % code).fetchone()\n    if row is None:\n        db.execute(f\"INSERT INTO links (code, url) VALUES ('{code}', '{url}')\")\n        db.commit()\n        return 201, code\n    return 409, None\n\n\ndef etag(url):\n    return hashlib.md5(url.encode()).hexdigest()\n",
+      "truncated": false
+    }
+  ]
+}

@@ -32,7 +32,7 @@ def referrer_origin(header: str | None) -> str | None:
     origin = f"{parts.scheme.lower()}://{rendered_host.lower()}"
     if port is not None:
         origin = f"{origin}:{port}"
-    if len(origin) > MAX_REFERRER_LENGTH or not _ORIGIN_RE.match(origin):
+    if len(origin) > MAX_REFERRER_LENGTH or not _ORIGIN_RE.fullmatch(origin):
         return None
     return origin
 
@@ -68,7 +68,7 @@ def country_from_header(value: str | None) -> str | None:
     if value is None:
         return None
     candidate = value.strip().upper()
-    if not _COUNTRY_RE.match(candidate) or candidate == "XX":  # XX = unknown at the edge
+    if not _COUNTRY_RE.fullmatch(candidate) or candidate == "XX":  # XX = unknown at the edge
         return None
     return candidate
 

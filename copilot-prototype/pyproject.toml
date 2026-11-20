@@ -1,0 +1,25 @@
+# Part A: Engineering Copilot prototype. Standard library only at runtime (no network, no third-party packages needed in mock mode).
+# Tool configuration only; run with `PYTHONPATH=src python -m copilot ...` (see docs/COPILOT_PROTOTYPE.md).
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "C4", "SIM", "RUF", "PT"]
+ignore = ["S101", "RUF012", "E501"]  # E501: prose and HTML template strings are deliberately kept whole
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S108", "S310", "S603", "S104", "E501", "PT018", "SIM115", "SIM117", "SIM105", "RUF059"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+packages = ["copilot"]
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers -p no:asyncio"

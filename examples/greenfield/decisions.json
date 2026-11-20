@@ -1,0 +1,23 @@
+[
+  {
+    "stage": 1,
+    "action": "accept",
+    "notes": "scripted example decision",
+    "answers": {
+      "Q1": "99.5% monthly availability is enough for an internal tool",
+      "Q2": "Click records are kept 90 days, then deleted; no personal data beyond what the request already carries",
+      "Q3": "Structured logs plus request count, error rate and p95 latency metrics"
+    }
+  },
+  { "stage": 2, "action": "accept", "notes": "scripted example decision" },
+  {
+    "stage": 3,
+    "action": "modify",
+    "notes": "scripted example decision: add an explicit constraint the generated design does not state",
+    "append": "## Engineer addition\nAlias uniqueness is enforced by a database UNIQUE constraint, not by a check-then-insert in application code."
+  },
+  { "stage": 4, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 5, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 6, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 7, "action": "accept", "notes": "scripted example decision" }
+]

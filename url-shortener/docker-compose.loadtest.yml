@@ -1,0 +1,32 @@
+# Load-test overlay: `docker compose -f docker-compose.yml -f docker-compose.loadtest.yml ...` (see loadtest/run_scenario.py).
+# It relaxes things that would otherwise throttle a single load generator and adds a Locust runner on the
+# compose network (so the numbers do not include Windows/WSL port-forwarding overhead).
+# NOT for production: rate limits are effectively off and DNS checks are skipped.
+services:
+  postgres:
+    # Several app processes each hold a connection pool; the default of 100 would be tight.
+    command: ["postgres", "-c", "max_connections=200"]
+
+  app:
+    environment:
+      RATE_LIMIT_REDIRECT_PER_MIN: "1000000000"
+      RATE_LIMIT_CREATE_PER_MIN: "1000000000"
+      RATE_LIMIT_API_PER_MIN: "1000000000"
+      DNS_CHECK_ENABLED: "false"
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1} # uvicorn worker processes inside the one app container
+
+  locust:
+    image: locustio/locust:2.47.0@sha256:90fdf5b9632e67bb556d17784095652871be68318c5074731d911d4caaa42cc3
+    profiles: ["loadtest"]
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./loadtest:/mnt/locust
+      - ./loadtest/results:/results
+    working_dir: /mnt/locust
+    environment:
+      SCENARIO: ${SCENARIO:-mixed}
+      LOAD_PROCS: ${LOAD_PROCS:-4}
+      HOT_LINKS: "50"
+      COLD_TOTAL: ${COLD_TOTAL:-300000}

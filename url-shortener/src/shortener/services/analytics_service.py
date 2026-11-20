@@ -49,13 +49,16 @@ def decode_cursor(cursor: str) -> tuple[datetime, str]:
         parsed = datetime.fromisoformat(timestamp)
     except (binascii.Error, UnicodeDecodeError, ValueError):
         raise ValidationFailed.single("cursor", "cursor-invalid", "The cursor is not valid.") from None
-    if parsed.tzinfo is None or not _EVENT_ID_RE.match(event_id):
+    if parsed.tzinfo is None or not _EVENT_ID_RE.fullmatch(event_id):
         raise ValidationFailed.single("cursor", "cursor-invalid", "The cursor is not valid.")
     return parsed, event_id
 
 
-def _as_utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+def _as_utc(value: datetime, field: str) -> datetime:
+    try:
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    except OverflowError:  # e.g. 0001-01-01T00:00:00+05:00 has no UTC representation
+        raise ValidationFailed.single(field, "window-invalid", "The timestamp is out of range.") from None
 
 
 class AnalyticsService:
@@ -76,8 +79,16 @@ class AnalyticsService:
         cursor: str | None,
     ) -> AnalyticsReport:
         link = await self._links.get(owner=owner, code=code)  # 404 for non-owners, before anything else
-        window_end = _as_utc(end) if end is not None else self._clock.now()
-        window_start = _as_utc(start) if start is not None else window_end - DEFAULT_WINDOW
+        window_end = _as_utc(end, "to") if end is not None else self._clock.now()
+        if start is not None:
+            window_start = _as_utc(start, "from")
+        else:
+            try:
+                window_start = window_end - DEFAULT_WINDOW
+            except OverflowError:
+                raise ValidationFailed.single(
+                    "to", "window-invalid", "The timestamp is out of range."
+                ) from None
         issues: list[FieldIssue] = []
         if window_start >= window_end:
             issues.append(FieldIssue("from", "window-invalid", "`from` must be before `to`."))

@@ -55,8 +55,8 @@ class LinkCache(Protocol):
 
     async def get(self, code: str) -> CacheEntry | None: ...
 
-    async def put(self, code: str, entry: CacheEntry, ttl_seconds: int) -> None:
-        """Unconditional overwrite (create, delete tombstone)."""
+    async def put(self, code: str, entry: CacheEntry, ttl_seconds: int) -> bool:
+        """Unconditional overwrite (create, delete tombstone). False when the write did not happen."""
         ...
 
     async def put_if_absent(self, code: str, entry: CacheEntry, ttl_seconds: int) -> None:

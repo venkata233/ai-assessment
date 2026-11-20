@@ -20,6 +20,7 @@ def create_db_engine(settings: Settings) -> AsyncEngine:
     return create_async_engine(
         settings.database_url.get_secret_value(),
         pool_size=settings.db_pool_size,
+        hide_parameters=True,  # exception messages must not carry bound values (target URLs, codes)
         max_overflow=settings.db_max_overflow,
         pool_timeout=3,
         pool_pre_ping=True,

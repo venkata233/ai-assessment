@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Scope: Part B (URL shortener service) and how AI assistance is integrated into building it. Part A (the Engineering Copilot tool) gets its own section in Phase 5.
+Scope: Part B (URL shortener service) and how AI assistance is integrated into building it. Part A (the Engineering Copilot tool) is described in [COPILOT_PROTOTYPE.md](COPILOT_PROTOTYPE.md).
 Status: Phase 2 design, **implemented in Phase 3** (`url-shortener/src/shortener/`). Behaviour statements are *design intent* unless marked **verified**; section 15 lists what Phase 3 actually verified, where the implementation differs from this design, and what is still unproven.
 
 > **Provisional design targets (not verified capacity):** 100 M links, 5 k redirects/s peak, 50 creates/s. They size the design; only Phase 4 load tests will say what the implementation achieves.
@@ -240,8 +240,8 @@ Contracts: [openapi.yaml](../url-shortener/openapi.yaml) · [DB_SCHEMA.md](DB_SC
 | Click pipeline: at-least-once delivery, idempotent storage, poison handling | `tests/integration/test_worker.py` (redelivery after crash, commit-then-crash, dead-lettering, reclaim, two workers, graceful stop) |
 | Redirect works with Redis down; analytics emit never delays the response | integration test AC-11, ASGI-level test that the response completes before the (slow) publish, live check with `docker compose stop redis` |
 | Migrations round-trip and models match them | `alembic upgrade → downgrade base → upgrade`, `alembic check` (no drift), single head |
-| Static checks | `ruff`, `mypy --strict` (36 files), `bandit` (0 findings), `pip-audit` (no known vulnerabilities) |
-| Test strength | 384 tests, 96 % statement/branch coverage overall, 99 % on `link_service.py`; manual mutation run in `.agent/mutation_check.py` (see AI_USAGE_LOG entry 026) |
+| Static checks | `ruff`, `mypy --strict` (36 files), `bandit` (0 findings), `pip-audit` (no known vulnerabilities), Trivy on the image (clean after Phase 4 fixes) |
+| Test strength | 426 tests (Phase 4 count; 384 at the Phase 3 commit), 96 % statement/branch coverage overall, 99 % on `link_service.py`; manual mutation run in `.agent/mutation_check.py` (20 of 22 mutants killed; see AI_USAGE_LOG entry 026; not repeated after the Phase 4 fixes) |
 
 **Differences from the Phase 2 design (all deliberate, each found by running the system):**
 
@@ -249,13 +249,14 @@ Contracts: [openapi.yaml](../url-shortener/openapi.yaml) · [DB_SCHEMA.md](DB_SC
 - **Counter update locks rows first** (`FOR NO KEY UPDATE ... ORDER BY id`) so concurrent workers take locks in the same order; the retry on `40P01`/`40001` remains as a safety net. *Limit:* I could not reproduce a deadlock without it (see AI_USAGE_LOG entry 026), so its necessity is unproven.
 - **Extra configuration** beyond section 8: `RATE_LIMIT_API_PER_MIN` (300; limit for non-create management calls, also throttles failed key attempts per client address), `DNS_CHECK_ENABLED`, `DNS_TIMEOUT_SECONDS`, `DOCS_ENABLED` (default off), `METRICS_ENABLED`, `CLICK_EMIT_TIMEOUT_MS` (50), `CLICK_STREAM_MAXLEN`, `REDIS_SOCKET_TIMEOUT_SECONDS`, `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`.
 - **DNS check is advisory:** hostnames that fail to resolve are accepted (only a resolution to a non-public address is rejected), so an offline machine can still create links.
-- **`/metrics`** is a small hand-written Prometheus text endpoint (counters plus `click_stream_length` / `click_stream_pending` gauges), unauthenticated; restrict it at the ingress or set `METRICS_ENABLED=false`.
+- **`/metrics`** is a small hand-written Prometheus text endpoint (counters plus `click_stream_length` / `click_stream_pending` gauges), unauthenticated, and (since the Phase 4 review) **off by default** (`METRICS_ENABLED=false`); compose turns it on for loopback-only development. Restrict it at the ingress anywhere shared.
+- **Phase 4 hardening (see [VALIDATION.md](VALIDATION.md))**: `TRUST_GEO_HEADER` (default false: the country header is client-controlled unless the edge rewrites it); the application refuses to start with the published demo keys or `*_dev_only` passwords unless `BASE_URL` is localhost (`ALLOW_DEV_CREDENTIALS` is the break-glass switch used by tests); validation errors no longer echo submitted settings; DB exception text hides bound parameters; compose containers run read-only with all capabilities dropped; the image was patched and re-scanned (Trivy clean).
 
 **Known limits and unproven claims (do not read these as capacity or security guarantees):**
 
 - The GitHub Actions workflow (`.github/workflows/ci.yml`) has **not been run**: there is no remote. Its steps were exercised locally one by one; its YAML parses; action versions are pinned to commit SHAs.
-- Nothing here has been load tested; the 5,000 redirects/s target remains an unverified design target (Phase 4).
+- Nothing here has been **successfully** load tested: a first measurement series exists but was incomplete and not reproducible from stored artifacts, so the 5,000 redirects/s target remains an unverified design target. See [LOAD_TEST.md](LOAD_TEST.md) (one uvicorn process saturated near 370-390 req/s on the shared laptop; scaling behaviour is unexplained).
 - With Redis *blackholed* (packets dropped rather than refused) the first calls wait up to `REDIS_SOCKET_TIMEOUT_SECONDS` (0.25 s) each before the breaker opens; not measured.
 - Rate limiting identifies clients by the address `TRUSTED_PROXY_HOPS` yields. Behind an unconfigured proxy every visitor shares one address (and one redirect limit).
 - A PostgreSQL outage longer than about `max_deliveries` reclaim cycles (5 x 60 s) moves pending click events to `clicks:dead` (kept, not lost, but not counted until re-driven by hand; no re-drive tool exists yet).
-- The static analysers and scanners cover the code and pinned dependencies; they say nothing about the base image beyond its pinned digest. No image scan was run.
+- The static analysers and scanners cover the code and pinned dependencies. A Trivy image scan was run in Phase 4 (HIGH findings fixed, re-scan clean); there is still no DAST, fuzzing, or human penetration test.

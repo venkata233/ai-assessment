@@ -5,15 +5,28 @@ from functools import cached_property
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _LABEL_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
+# The demo keys published in docker-compose.yml and the tests, and the marker used in throwaway passwords.
+DEMO_KEY_HASHES = frozenset(
+    {
+        "c1d5df720e5bccea4c80f959195421baa0c28d3d50ed8f74e6073f57bc04da17",
+        "e37e3942d7d26684a71c7ef7a7f5384e0d0431a74cdb819e4002f9a8125e7508",
+    }
+)
+DEV_ONLY_MARKER = "dev_only"
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=None, extra="ignore", case_sensitive=False)
+    # Never echo submitted values in validation errors: they would print (parts of) secrets into startup logs.
+    model_config = SettingsConfigDict(
+        env_file=None, extra="ignore", case_sensitive=False, hide_input_in_errors=True
+    )
 
     database_url: SecretStr
     redis_url: SecretStr
@@ -23,6 +36,8 @@ class Settings(BaseSettings):
     analytics_secret: SecretStr
 
     geo_country_header: str = "CF-IPCountry"
+    # Off by default: the header is client-controlled unless the edge strips and rewrites it.
+    trust_geo_header: bool = False
     trusted_proxy_hops: int = Field(default=0, ge=0, le=10)
     code_length: int = Field(default=7, ge=6, le=16)
     cache_ttl_seconds: int = Field(default=3600, ge=1)
@@ -35,7 +50,10 @@ class Settings(BaseSettings):
     dns_check_enabled: bool = True
     dns_timeout_seconds: float = Field(default=2.0, gt=0)
     docs_enabled: bool = False
-    metrics_enabled: bool = True
+    # Off by default: /metrics is unauthenticated. Enable it only where the ingress restricts access.
+    metrics_enabled: bool = False
+    # Break-glass for tests: allows the published demo credentials on a non-local BASE_URL.
+    allow_dev_credentials: bool = False
 
     click_emit_timeout_ms: int = Field(default=50, ge=1)
     click_stream_maxlen: int = Field(default=1_000_000, ge=1000)
@@ -73,6 +91,24 @@ class Settings(BaseSettings):
         parse_api_keys(value.get_secret_value())
         return value
 
+    @model_validator(mode="after")
+    def _refuse_dev_credentials_outside_localhost(self) -> "Settings":
+        """Fail closed: demo keys and *_dev_only passwords are public, so only localhost may use them."""
+        if self.allow_dev_credentials or (urlsplit(self.base_url).hostname or "") in _LOCAL_HOSTS:
+            return self
+        found: list[str] = []
+        if DEMO_KEY_HASHES & set(self.api_key_hashes):
+            found.append("the published demo API keys")
+        if DEV_ONLY_MARKER in self.database_url.get_secret_value():
+            found.append("a *_dev_only database password")
+        if DEV_ONLY_MARKER in self.analytics_secret.get_secret_value():
+            found.append("a *_dev_only analytics secret")
+        if found:
+            raise ValueError(
+                f"refusing to start: BASE_URL is not local but the configuration uses {', '.join(found)}"
+            )
+        return self
+
     @cached_property
     def api_key_hashes(self) -> dict[str, str]:
         """Map of sha256 hex digest -> owner label."""
@@ -87,7 +123,7 @@ def parse_api_keys(raw: str) -> dict[str, str]:
             continue
         label, sep, digest = item.partition(":")
         digest = digest.lower()
-        if not sep or not _LABEL_RE.match(label) or not _SHA256_RE.match(digest):
+        if not sep or not _LABEL_RE.fullmatch(label) or not _SHA256_RE.fullmatch(digest):
             raise ValueError("API_KEYS entries must look like label:<64 hex chars of sha256>")
         if label in labels or digest in result:
             raise ValueError("API_KEYS contains a duplicate label or hash")

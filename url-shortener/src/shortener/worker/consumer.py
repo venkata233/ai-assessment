@@ -51,7 +51,7 @@ def parse_message(message_id: str, fields: dict[str, str]) -> ClickEvent:
         user_agent=truncate_user_agent(fields.get("ua") or None),
         ua_family=((fields.get("ua_family") or "other")[:32]) or "other",
         country=country_from_header(fields.get("country") or None),
-        visitor_hash=visitor if visitor and _VISITOR_RE.match(visitor) else None,
+        visitor_hash=visitor if visitor and _VISITOR_RE.fullmatch(visitor) else None,
     )
 
 

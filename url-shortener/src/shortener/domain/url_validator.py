@@ -31,6 +31,17 @@ _DECIMAL_RE = re.compile(r"^[0-9]+$")
 _HEX_RE = re.compile(r"^0[xX][0-9a-fA-F]*$")
 _NAT64 = ipaddress.IPv6Network("64:ff9b::/96")
 _IPV4_COMPATIBLE = ipaddress.IPv6Network("::/96")
+# Ranges that some Python versions still report as global. Listing them here keeps the guard independent of
+# the interpreter's `ipaddress` tables (a runtime upgrade or downgrade cannot silently open a hole).
+_ALWAYS_BLOCKED = tuple(
+    ipaddress.ip_network(n)
+    for n in (
+        "192.0.0.0/24",  # IETF protocol assignments
+        "192.88.99.0/24",  # deprecated 6to4 relay anycast
+        "198.18.0.0/15",  # benchmarking
+        "3fff::/20",  # documentation (RFC 9637)
+    )
+)
 _PATH_SAFE = "/%:@!$&'()*+,;=-._~[]"
 _QUERY_SAFE = _PATH_SAFE + "?"
 
@@ -62,6 +73,8 @@ def is_public_ip(ip: IpAddress) -> bool:
             return is_public_ip(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF))
         if ip in _IPV4_COMPATIBLE:
             return False
+    if any(ip in network for network in _ALWAYS_BLOCKED):
+        return False
     return ip.is_global and not (
         ip.is_multicast or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified
     )
@@ -77,7 +90,7 @@ def _has_forbidden_characters(value: str) -> bool:
 
 
 def _parse_ipv4_number(part: str) -> int:
-    if _HEX_RE.match(part):
+    if _HEX_RE.fullmatch(part):
         return int(part[2:] or "0", 16)
     if len(part) > 1 and part.startswith("0"):
         return int(part[1:], 8)  # ValueError for digits 8/9, handled by the caller
@@ -92,9 +105,9 @@ def parse_legacy_ipv4(host: str) -> ipaddress.IPv4Address | None:
     reject it too and we must not guess.
     """
     labels = host.split(".")
-    if not (_DECIMAL_RE.match(labels[-1]) or _HEX_RE.match(labels[-1])):
+    if not (_DECIMAL_RE.fullmatch(labels[-1]) or _HEX_RE.fullmatch(labels[-1])):
         return None
-    if len(labels) > 4 or any(not (_DECIMAL_RE.match(p) or _HEX_RE.match(p)) for p in labels):
+    if len(labels) > 4 or any(not (_DECIMAL_RE.fullmatch(p) or _HEX_RE.fullmatch(p)) for p in labels):
         raise ValueError("not an IPv4 address")
     numbers = [_parse_ipv4_number(p) for p in labels]
     if any(n > 255 for n in numbers[:-1]) or numbers[-1] >= 256 ** (5 - len(labels)):
@@ -126,10 +139,23 @@ def _check_hostname(host: str) -> None:
     labels = host.split(".")
     if len(labels) < 2:
         raise _fail("host-not-allowed", "Single-label hostnames are not allowed.")
-    if not all(_LABEL_RE.match(label) for label in labels):
+    if not all(_LABEL_RE.fullmatch(label) for label in labels):
         raise _fail("invalid-url", "The host name is not valid.")
     if host in _BLOCKED_HOSTS or host.endswith(_BLOCKED_SUFFIXES):
         raise _fail("host-not-allowed", "Internal host names are not allowed.")
+
+
+def own_origins_from_base_url(base_url: str) -> frozenset[tuple[str, int]]:
+    """(host, port) pairs that count as "this service" for the redirect-loop check.
+
+    The host is normalised exactly like target hosts are (IDNA, lower case, no trailing dot). The configured
+    port plus both default ports are included, so a link to `http://host/x` is refused when the service
+    itself is served at `https://host` (and the other way round): both reach the same service.
+    """
+    parts = urlsplit(base_url)
+    host = _normalise_hostname(parts.hostname or "")
+    configured = parts.port or _DEFAULT_PORTS[parts.scheme]
+    return frozenset((host, port) for port in {configured, *_DEFAULT_PORTS.values()})
 
 
 def validate_target_url(raw: str, *, own_origins: frozenset[tuple[str, int]] = frozenset()) -> ValidatedUrl:

@@ -39,7 +39,9 @@ ContainerDep = Annotated[Container, Depends(get_container)]
 
 def _client_ip(request: Request, container: Container) -> str | None:
     peer = request.client.host if request.client else None
-    return client_ip(request.headers.get("x-forwarded-for"), peer, container.settings.trusted_proxy_hops)
+    # A proxy may send X-Forwarded-For as several header lines; they are one comma-separated list in effect.
+    forwarded = ", ".join(request.headers.getlist("x-forwarded-for")) or None
+    return client_ip(forwarded, peer, container.settings.trusted_proxy_hops)
 
 
 async def _authenticate(
@@ -190,7 +192,11 @@ async def redirect(
             referrer=referrer_origin(request.headers.get("referer")),
             user_agent=user_agent,
             ua_family=ua_family(user_agent),
-            country=country_from_header(request.headers.get(settings.geo_country_header)),
+            country=(
+                country_from_header(request.headers.get(settings.geo_country_header))
+                if settings.trust_geo_header
+                else None
+            ),
             visitor_hash=visitor_hash(
                 settings.analytics_secret.get_secret_value(), ip, user_agent, now.date()
             ),

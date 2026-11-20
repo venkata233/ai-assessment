@@ -4,13 +4,23 @@ FROM python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b5
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1
 WORKDIR /build
 COPY requirements.txt .
-RUN python -m venv /opt/venv && /opt/venv/bin/pip install -r requirements.txt
+# pip/setuptools/wheel are build tooling: removing them from the venv drops their vendored copies of
+# jaraco.context and wheel (flagged by Trivy) and shrinks what an attacker could use inside the container.
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install -r requirements.txt \
+    && /opt/venv/bin/pip uninstall -y pip setuptools wheel
 
 FROM python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535 AS runtime
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app/src
+# Pull in the Debian security fix for zlib1g (CVE-2026-85091) that the pinned base image predates, and remove the
+# interpreter's own pip/setuptools/wheel. Bump the base digest and drop the apt line once the base includes the fix.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade zlib1g \
+    && rm -rf /var/lib/apt/lists/* \
+    && /usr/local/bin/python -m pip uninstall -y pip setuptools wheel
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 WORKDIR /app

@@ -186,4 +186,11 @@ class LinkService:
         if not deleted:  # lost a race with a concurrent delete
             raise LinkNotFound
         # Commit first, then write a tombstone (not DEL): see ADR-005 for the stale write-back race.
-        await self._cache.put(code, CacheEntry("deleted"), TOMBSTONE_TTL_SECONDS)
+        if not await self._cache.put(code, CacheEntry("deleted"), TOMBSTONE_TTL_SECONDS):
+            # The row is deleted, but a warm positive cache entry may keep redirecting until it expires.
+            self._metrics.inc("cache_invalidation_failures_total")
+            _log.warning(
+                "delete_cache_invalidation_failed",
+                max_stale_seconds=int(self._cache_ttl * 1.1),
+                note="deleted link may keep redirecting until its cache entry expires",
+            )

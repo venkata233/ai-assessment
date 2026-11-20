@@ -41,7 +41,8 @@ class CodeGenerator(Protocol):
 
 
 def is_valid_code_format(code: str) -> bool:
-    return CODE_PATTERN.match(code) is not None
+    # fullmatch, not match: `$` also matches before a trailing newline, so "admin\n" would slip through.
+    return CODE_PATTERN.fullmatch(code) is not None
 
 
 def is_reserved(code: str) -> bool:

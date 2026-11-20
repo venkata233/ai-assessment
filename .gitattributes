@@ -1,0 +1,9 @@
+# Generated example output is compared byte for byte by copilot-prototype/tests/test_examples.py and carries a SHA-256
+# audit chain, so Git must not convert its line endings.
+examples/**/output/** -text
+
+# The example inputs are what those outputs were generated from (the brief and the code are embedded in the prompts), so
+# they must be LF on every platform, otherwise a Windows checkout regenerates different bytes.
+examples/*/brief.md text eol=lf
+examples/*/decisions.json text eol=lf
+examples/*/legacy/** text eol=lf

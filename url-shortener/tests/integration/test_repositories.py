@@ -91,6 +91,21 @@ async def test_database_check_constraints_back_up_the_application(engine: AsyncE
             await add_link(repo, **{"code": "okcode", **kwargs})  # type: ignore[arg-type]
 
 
+async def test_database_errors_do_not_carry_bound_values(engine: AsyncEngine) -> None:
+    """Exception text (which can end up in logs) must not contain parameters such as target URLs."""
+    from sqlalchemy.exc import IntegrityError
+
+    repo = SqlLinkRepository(engine)
+    with pytest.raises(IntegrityError) as info:
+        await add_link(
+            repo, "ab", target_url="https://example.com/SECRET-PATH-VALUE"
+        )  # code too short: CHECK fails
+    assert "SECRET-PATH-VALUE" not in str(info.value)
+    assert (
+        "hidden" in str(info.value).lower()
+    )  # SQLAlchemy: "[SQL parameters hidden due to hide_parameters=True]"
+
+
 async def test_unreachable_database_maps_to_storage_unavailable(settings) -> None:  # type: ignore[no-untyped-def]
     from conftest import make_integration_settings
 

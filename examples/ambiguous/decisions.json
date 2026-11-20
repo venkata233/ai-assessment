@@ -1,0 +1,31 @@
+[
+  {
+    "stage": 1,
+    "action": "reject",
+    "notes": "scripted example decision: the proposal leaves every vague word open; the engineer wants numbers before moving on"
+  },
+  {
+    "stage": 1,
+    "action": "accept",
+    "notes": "scripted example decision: answers supplied after the clarification round",
+    "answers": {
+      "Q1": "1,000 redirects/s and 10 million links within 12 months",
+      "Q2": "p95 redirect under 50 ms at 1,000 redirects/s",
+      "Q3": "Admin API behind an API key; redirects are public; no user passwords stored",
+      "Q4": "A support agent creates a link in one request with one field",
+      "Q5": "Complete list: create link, redirect, expire link, per-link click count",
+      "Q6": "ASSUME",
+      "Q7": "ASSUME",
+      "Q8": "99.5% monthly",
+      "Q9": "ASSUME",
+      "Q10": "Delete click records after 90 days",
+      "Q11": "ASSUME"
+    }
+  },
+  { "stage": 2, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 3, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 4, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 5, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 6, "action": "accept", "notes": "scripted example decision" },
+  { "stage": 7, "action": "accept", "notes": "scripted example decision" }
+]

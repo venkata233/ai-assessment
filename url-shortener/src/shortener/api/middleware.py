@@ -24,7 +24,7 @@ class RequestContextMiddleware:
             return
 
         supplied = Headers(scope=scope).get("x-request-id")
-        request_id = supplied if supplied and _REQUEST_ID_RE.match(supplied) else uuid.uuid4().hex
+        request_id = supplied if supplied and _REQUEST_ID_RE.fullmatch(supplied) else uuid.uuid4().hex
         state: dict[str, Any] = scope.setdefault("state", {})
         state["request_id"] = request_id
         structlog.contextvars.clear_contextvars()
