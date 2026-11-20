@@ -1,0 +1,648 @@
+openapi: 3.1.0
+info:
+  title: URL Shortener API
+  version: 1.0.0
+  summary: Create short links, redirect visitors, and read click analytics.
+  description: |
+    Contract-first definition (design-time artifact; the implementation must match it and
+    contract tests will enforce that in Phase 3).
+
+    **Authentication.** Management endpoints require an owner-scoped API key in the
+    `X-API-Key` header. Redirects and health checks are public. A key can only see and
+    modify links it created; for any other key the link behaves as if it does not exist (`404`).
+
+    **Errors.** Every error is `application/problem+json` (RFC 7807 / RFC 9457).
+
+    **Redirect status.** `302 Found` is used on purpose (see ADR-001): every click is observable
+    and delete/expiry take effect immediately.
+
+    **Analytics consistency.** Clicks are recorded asynchronously (Redis Stream, see ADR-004);
+    analytics are eventually consistent, normally within a couple of seconds.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://localhost:8000
+    description: Local docker compose
+tags:
+  - name: Links
+    description: Create, inspect, and delete short links (API key required).
+  - name: Analytics
+    description: Click analytics for a link (API key required, owner only).
+  - name: Redirect
+    description: Public redirect endpoint.
+  - name: Operations
+    description: Liveness and readiness probes.
+paths:
+  /api/v1/urls:
+    post:
+      tags: [Links]
+      operationId: createUrl
+      summary: Create a short link
+      description: |
+        Creates a link with a generated 7-character Base62 code, or with the caller-supplied
+        `alias`. The target URL is validated (scheme allow-list, no credentials, no
+        loopback/private/link-local/metadata hosts, max 2048 chars).
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUrlRequest"
+            examples:
+              generated:
+                summary: Generated code
+                value:
+                  url: https://example.com/products/42?ref=newsletter
+              customAliasWithExpiry:
+                summary: Custom alias with expiry
+                value:
+                  url: https://example.com/spring-sale
+                  alias: spring-sale
+                  expires_at: "2027-03-31T23:59:59Z"
+      responses:
+        "201":
+          description: Link created.
+          headers:
+            Location:
+              description: URL of the new link resource (`/api/v1/urls/{code}`).
+              schema:
+                type: string
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UrlResource"
+              example:
+                code: aB3x9Zk
+                short_url: http://localhost:8000/aB3x9Zk
+                target_url: https://example.com/products/42?ref=newsletter
+                is_custom_alias: false
+                status: active
+                click_count: 0
+                created_at: "2026-11-20T15:04:05Z"
+                expires_at: null
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/AliasConflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/urls/{code}:
+    parameters:
+      - $ref: "#/components/parameters/Code"
+    get:
+      tags: [Links]
+      operationId: getUrl
+      summary: Get link metadata
+      description: |
+        Returns metadata for a link owned by the caller. Expired links are returned with
+        `status: expired`. Deleted links and links owned by another key return `404`.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Link metadata.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UrlResource"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    delete:
+      tags: [Links]
+      operationId: deleteUrl
+      summary: Delete a link
+      description: |
+        Soft-deletes the link and invalidates the cache. The code stays **permanently reserved**
+        and can never be reused (ADR-003, Phase 1 decision 4). Not idempotent by design: a second
+        delete returns `404`.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "204":
+          description: Link deleted.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestId"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /api/v1/urls/{code}/analytics:
+    parameters:
+      - $ref: "#/components/parameters/Code"
+    get:
+      tags: [Analytics]
+      operationId: getUrlAnalytics
+      summary: Get click analytics for a link
+      description: |
+        Aggregates clicks in the window `[from, to)` (defaults: last 7 days) and returns the most
+        recent raw clicks (keyset-paginated). Only GET requests that produced a redirect are counted.
+        Raw IP addresses are never stored; `approx_unique_visitors` is derived from a
+        daily-salted hash and therefore overcounts visitors who return on different days.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: from
+          in: query
+          description: Inclusive window start (UTC). Default is `to` minus 7 days.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: Exclusive window end (UTC). Default is now. Must be after `from`; the window may not exceed 90 days.
+          schema:
+            type: string
+            format: date-time
+        - name: granularity
+          in: query
+          description: Bucket size for `clicks_over_time`.
+          schema:
+            type: string
+            enum: [hour, day]
+            default: day
+        - name: limit
+          in: query
+          description: Page size for `recent_clicks`.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          description: Opaque cursor from a previous response's `recent_clicks.next_cursor`.
+          schema:
+            type: string
+            maxLength: 256
+      responses:
+        "200":
+          description: Aggregated analytics.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /{code}:
+    parameters:
+      - $ref: "#/components/parameters/Code"
+    get:
+      tags: [Redirect]
+      operationId: redirect
+      summary: Follow a short link
+      description: |
+        Responds `302` with the target in `Location`. Served from the Redis cache when possible and
+        falls back to PostgreSQL. A click event is emitted after the response is sent and can never
+        delay or fail the redirect. Reserved words (`api`, `health`, ...) cannot be used as codes.
+      security: []
+      responses:
+        "302":
+          description: Redirect to the target URL.
+          headers:
+            Location:
+              description: Validated target URL (http or https only).
+              schema:
+                type: string
+            Cache-Control:
+              description: Always `private, max-age=0` so clients and shared caches re-ask.
+              schema:
+                type: string
+            Referrer-Policy:
+              schema:
+                type: string
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestId"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          description: The link existed but has expired.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: https://shortener.example/problems/link-expired
+                title: Link expired
+                status: 410
+                detail: This short link has expired.
+                instance: /spring-sale
+                request_id: 5f1c1d2e9c6d4a0b8a3f
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /health:
+    get:
+      tags: [Operations]
+      operationId: liveness
+      summary: Liveness probe
+      description: Returns 200 while the process is up. Does not touch dependencies.
+      security: []
+      responses:
+        "200":
+          description: Process is alive.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+  /health/ready:
+    get:
+      tags: [Operations]
+      operationId: readiness
+      summary: Readiness probe
+      description: |
+        Checks dependencies. PostgreSQL down returns `503` (the core service cannot operate). Redis down
+        alone returns `200` with `status: degraded`, because redirects fall back to PostgreSQL and rate
+        limiting fails open.
+      security: []
+      responses:
+        "200":
+          description: Ready, possibly degraded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+              examples:
+                ok:
+                  value:
+                    status: ok
+                    checks: {database: ok, redis: ok}
+                degraded:
+                  value:
+                    status: degraded
+                    checks: {database: ok, redis: down}
+        "503":
+          description: Not ready (database unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+              example:
+                status: unavailable
+                checks: {database: down, redis: ok}
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Owner-scoped API key. Keys are configured server-side; only their SHA-256 hashes are stored.
+  parameters:
+    Code:
+      name: code
+      in: path
+      required: true
+      description: Short code or custom alias (case-sensitive).
+      schema:
+        $ref: "#/components/schemas/Code"
+  headers:
+    XRequestId:
+      description: Correlation id, also present in logs and in `request_id` of error bodies.
+      schema:
+        type: string
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema:
+        type: integer
+        minimum: 1
+  schemas:
+    Code:
+      type: string
+      pattern: "^[A-Za-z0-9_-]{3,32}$"
+      minLength: 3
+      maxLength: 32
+      examples: [aB3x9Zk, spring-sale]
+    CreateUrlRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          maxLength: 2048
+          description: |
+            Absolute `http` or `https` URL. Rejected: other schemes, embedded credentials,
+            `localhost`, private/loopback/link-local/metadata IPs (including encoded forms),
+            and URLs that point back at this service.
+          examples: ["https://example.com/page"]
+        alias:
+          type: [string, "null"]
+          pattern: "^[A-Za-z0-9_-]{3,32}$"
+          description: |
+            Optional custom code. Case-sensitive. Reserved words are rejected (`422`);
+            aliases that exist or were ever deleted are rejected (`409`).
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+          description: Optional UTC expiry. Must be in the future and at most 5 years ahead. Timezone required.
+    UrlResource:
+      type: object
+      required: [code, short_url, target_url, is_custom_alias, status, click_count, created_at, expires_at]
+      properties:
+        code:
+          $ref: "#/components/schemas/Code"
+        short_url:
+          type: string
+          format: uri
+        target_url:
+          type: string
+          format: uri
+        is_custom_alias:
+          type: boolean
+        status:
+          type: string
+          enum: [active, expired]
+        click_count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Lifetime clicks; eventually consistent with the analytics pipeline.
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+    AnalyticsResponse:
+      type: object
+      required: [code, from, to, granularity, total_clicks, approx_unique_visitors, clicks_over_time, top_referrers, top_user_agents, top_countries, recent_clicks]
+      properties:
+        code:
+          $ref: "#/components/schemas/Code"
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        granularity:
+          type: string
+          enum: [hour, day]
+        total_clicks:
+          type: integer
+          format: int64
+          minimum: 0
+        approx_unique_visitors:
+          type: integer
+          format: int64
+          minimum: 0
+        clicks_over_time:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimeBucket"
+        top_referrers:
+          type: array
+          maxItems: 10
+          description: Referrer origins (scheme + host). A null `value` means direct or unknown.
+          items:
+            $ref: "#/components/schemas/CountItem"
+        top_user_agents:
+          type: array
+          maxItems: 10
+          description: Coarse user-agent families (e.g. chrome, firefox, safari, edge, curl, bot, other).
+          items:
+            $ref: "#/components/schemas/CountItem"
+        top_countries:
+          type: array
+          maxItems: 10
+          description: ISO 3166-1 alpha-2 codes from a trusted edge header; null when unavailable.
+          items:
+            $ref: "#/components/schemas/CountItem"
+        recent_clicks:
+          $ref: "#/components/schemas/ClickPage"
+    TimeBucket:
+      type: object
+      required: [bucket_start, clicks]
+      properties:
+        bucket_start:
+          type: string
+          format: date-time
+        clicks:
+          type: integer
+          format: int64
+          minimum: 0
+    CountItem:
+      type: object
+      required: [value, clicks]
+      properties:
+        value:
+          type: [string, "null"]
+        clicks:
+          type: integer
+          format: int64
+          minimum: 0
+    ClickPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Click"
+        next_cursor:
+          type: [string, "null"]
+          description: Pass as `cursor` for the next page; null when there are no more clicks.
+    Click:
+      type: object
+      required: [clicked_at, referrer, user_agent, user_agent_family, country]
+      properties:
+        clicked_at:
+          type: string
+          format: date-time
+        referrer:
+          type: [string, "null"]
+          maxLength: 255
+          pattern: "^https?://[^/?#@\\s]+$"
+          description: Origin only (scheme + host[:port]). Paths, query strings, fragments and userinfo are never stored.
+        user_agent:
+          type: [string, "null"]
+          maxLength: 255
+        user_agent_family:
+          type: string
+          maxLength: 32
+        country:
+          type: [string, "null"]
+          pattern: "^[A-Z]{2}$"
+    Readiness:
+      type: object
+      required: [status, checks]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, unavailable]
+        checks:
+          type: object
+          required: [database, redis]
+          properties:
+            database:
+              type: string
+              enum: [ok, down]
+            redis:
+              type: string
+              enum: [ok, down]
+    Problem:
+      type: object
+      description: RFC 7807 problem details plus `request_id` and, for validation failures, `errors`.
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Stable identifier of the problem class.
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+          description: Human-readable, never contains stack traces, SQL, or internal hostnames.
+        instance:
+          type: string
+          description: Request path.
+        request_id:
+          type: string
+        errors:
+          type: array
+          description: Present on validation failures.
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+                examples: [url]
+              message:
+                type: string
+              code:
+                type: string
+                examples: [scheme-not-allowed, private-address, alias-reserved, expiry-in-past]
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+            const: ApiKey
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: https://shortener.example/problems/unauthorized
+            title: Unauthorized
+            status: 401
+            detail: A valid X-API-Key header is required.
+            instance: /api/v1/urls
+            request_id: 5f1c1d2e9c6d4a0b8a3f
+    NotFound:
+      description: |
+        Link does not exist, was deleted, or belongs to another API key (deliberately indistinguishable).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: https://shortener.example/problems/link-not-found
+            title: Link not found
+            status: 404
+            instance: /aB3x9Zk
+            request_id: 5f1c1d2e9c6d4a0b8a3f
+    AliasConflict:
+      description: Alias already exists or was previously deleted (permanently reserved).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: https://shortener.example/problems/alias-conflict
+            title: Alias unavailable
+            status: 409
+            detail: The alias is already in use.
+            instance: /api/v1/urls
+            request_id: 5f1c1d2e9c6d4a0b8a3f
+    ValidationError:
+      description: Request failed validation. Nothing was persisted.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: https://shortener.example/problems/validation-error
+            title: Validation failed
+            status: 422
+            detail: One or more fields are invalid.
+            instance: /api/v1/urls
+            request_id: 5f1c1d2e9c6d4a0b8a3f
+            errors:
+              - field: url
+                message: Target host resolves to a private address.
+                code: private-address
+    RateLimited:
+      description: Too many requests.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: https://shortener.example/problems/rate-limited
+            title: Too many requests
+            status: 429
+            detail: Rate limit exceeded. Retry later.
+            instance: /api/v1/urls
+            request_id: 5f1c1d2e9c6d4a0b8a3f
+    ServiceUnavailable:
+      description: Temporary failure (for example code generation retries exhausted, or database unavailable).
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: https://shortener.example/problems/service-unavailable
+            title: Service unavailable
+            status: 503
+            instance: /api/v1/urls
+            request_id: 5f1c1d2e9c6d4a0b8a3f

@@ -1,0 +1,59 @@
+# Python virtual environments (incl. agent tooling venv with ~10k files)
+.agent/venv/
+.venv/
+venv/
+env/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+
+# Packaging / build output
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test & coverage output
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Secrets & local configuration (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local databases & runtime data
+*.sqlite
+*.sqlite3
+*.db
+pgdata/
+postgres-data/
+redis-data/
+*.rdb
+
+# Docker local overrides
+docker-compose.override.yml
+
+# Logs & scratch output
+*.log
+.agent/out.txt
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
